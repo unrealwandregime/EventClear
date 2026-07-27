@@ -28,7 +28,10 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
     uint256 public constant RESIDUAL_SHARE_SUPPLY = 1e18;
     bytes32 private constant QUOTE_TYPEHASH = keccak256(
-        "FinancingQuote(address borrower,address positionWallet,bytes32 bundleHash,bytes32 relationshipDefinitionHash,bytes32 solverArtifactHash,uint256 guaranteedFloor,uint256 principalAmount,uint256 grossAdvance,uint256 originationFee,uint256 netAdvance,uint256 expiry,uint256 nonce,uint256 chainId,address vault,address fundingPool,address collateralToken)"
+        "FinancingQuote(address borrower,address positionWallet,bytes32 bundleHash,bytes32 walletAuthorizationHash,bytes32 relationshipDefinitionHash,bytes32 solverArtifactHash,uint256 guaranteedFloor,uint256 principalAmount,uint256 grossAdvance,uint256 originationFee,uint256 netAdvance,uint256 expiry,uint256 nonce,uint256 chainId,address vault,address fundingPool,address collateralToken)"
+    );
+    bytes32 private constant POSITION_WALLET_AUTHORIZATION_TYPEHASH = keccak256(
+        "PositionWalletAuthorization(address controllingSigner,address borrower,address positionWallet,bytes32 bundleHash,address vault,uint256 chainId,uint256 nonce,uint256 expiry)"
     );
 
     enum BundleStatus {
@@ -44,6 +47,7 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
         address borrower;
         address positionWallet;
         bytes32 bundleHash;
+        bytes32 walletAuthorizationHash;
         bytes32 relationshipDefinitionHash;
         bytes32 solverArtifactHash;
         uint256 guaranteedFloor;
@@ -57,6 +61,17 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
         address vault;
         address fundingPool;
         address collateralToken;
+    }
+
+    struct PositionWalletAuthorization {
+        address controllingSigner;
+        address borrower;
+        address positionWallet;
+        bytes32 bundleHash;
+        address vault;
+        uint256 chainId;
+        uint256 nonce;
+        uint256 expiry;
     }
 
     struct Bundle {
@@ -86,6 +101,7 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
     uint256 public nextBundleId = 1;
 
     mapping(bytes32 quoteKey => bool) public quoteUsed;
+    mapping(bytes32 authorizationKey => bool) public walletAuthorizationUsed;
     mapping(uint256 bundleId => Bundle) public bundles;
     mapping(uint256 bundleId => bytes32[]) private _conditionIds;
     mapping(uint256 bundleId => uint256[]) private _tokenIds;
@@ -94,6 +110,9 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
     error InvalidQuote();
     error QuoteExpired();
     error QuoteAlreadyUsed();
+    error PositionWalletNotAuthorized();
+    error WalletAuthorizationAlreadyUsed();
+    error WalletAuthorizationExpired();
     error RelationshipInactive();
     error OriginationPaused();
     error InvalidBundleState();
@@ -175,9 +194,55 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
         );
     }
 
+    function positionWalletAuthorizationForQuote(FinancingQuote calldata quote)
+        public
+        pure
+        returns (PositionWalletAuthorization memory)
+    {
+        return PositionWalletAuthorization({
+            controllingSigner: quote.borrower,
+            borrower: quote.borrower,
+            positionWallet: quote.positionWallet,
+            bundleHash: quote.bundleHash,
+            vault: quote.vault,
+            chainId: quote.chainId,
+            nonce: quote.nonce,
+            expiry: quote.expiry
+        });
+    }
+
+    function hashPositionWalletAuthorization(PositionWalletAuthorization memory authorization)
+        public
+        pure
+        returns (bytes32)
+    {
+        return keccak256(
+            abi.encode(
+                POSITION_WALLET_AUTHORIZATION_TYPEHASH,
+                authorization.controllingSigner,
+                authorization.borrower,
+                authorization.positionWallet,
+                authorization.bundleHash,
+                authorization.vault,
+                authorization.chainId,
+                authorization.nonce,
+                authorization.expiry
+            )
+        );
+    }
+
+    function positionWalletAuthorizationDigest(PositionWalletAuthorization memory authorization)
+        public
+        view
+        returns (bytes32)
+    {
+        return _hashTypedDataV4(hashPositionWalletAuthorization(authorization));
+    }
+
     function openBundle(
         FinancingQuote calldata quote,
         bytes calldata signature,
+        bytes calldata walletAuthorizationProof,
         bytes32[] calldata conditionIds,
         uint256[] calldata tokenIds,
         uint8[] calldata outcomes,
@@ -185,14 +250,33 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
         uint32 relationshipVersion
     ) external nonReentrant whenNotPaused returns (uint256 bundleId) {
         if (originationsPaused) revert OriginationPaused();
+        if (quote.borrower != msg.sender || quote.positionWallet != msg.sender) revert PositionWalletNotAuthorized();
         if (
-            quote.borrower != msg.sender || quote.positionWallet == address(0) || quote.vault != address(this)
-                || quote.fundingPool != address(fundingPool) || quote.collateralToken != address(collateral)
-                || quote.chainId != block.chainid
-        ) {
-            revert InvalidQuote();
-        }
+            quote.vault != address(this) || quote.fundingPool != address(fundingPool)
+                || quote.collateralToken != address(collateral) || quote.chainId != block.chainid
+        ) revert InvalidQuote();
         if (quote.expiry < block.timestamp) revert QuoteExpired();
+        bytes32 quoteKey = keccak256(abi.encode(quote.borrower, quote.nonce));
+        if (quoteUsed[quoteKey]) revert QuoteAlreadyUsed();
+        (PositionWalletAuthorization memory authorization, bytes memory walletAuthorizationSignature) =
+            abi.decode(walletAuthorizationProof, (PositionWalletAuthorization, bytes));
+        if (authorization.expiry < block.timestamp) revert WalletAuthorizationExpired();
+        if (
+            authorization.controllingSigner != msg.sender || authorization.borrower != quote.borrower
+                || authorization.positionWallet != quote.positionWallet || authorization.bundleHash != quote.bundleHash
+                || authorization.vault != address(this) || authorization.chainId != block.chainid
+                || quote.walletAuthorizationHash != hashPositionWalletAuthorization(authorization)
+        ) {
+            revert PositionWalletNotAuthorized();
+        }
+        bytes32 authorizationKey = keccak256(abi.encode(authorization.controllingSigner, authorization.nonce));
+        if (walletAuthorizationUsed[authorizationKey]) revert WalletAuthorizationAlreadyUsed();
+        if (
+            ECDSA.recover(positionWalletAuthorizationDigest(authorization), walletAuthorizationSignature)
+                != quote.positionWallet
+        ) {
+            revert PositionWalletNotAuthorized();
+        }
         if (
             quote.principalAmount != quote.guaranteedFloor || quote.grossAdvance > quote.guaranteedFloor
                 || quote.netAdvance + quote.originationFee != quote.grossAdvance
@@ -207,8 +291,6 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
         ) revert InvalidQuote();
         if (!registry.isActive(quote.relationshipDefinitionHash)) revert RelationshipInactive();
         if (registry.versionOf(quote.relationshipDefinitionHash) != relationshipVersion) revert InvalidQuote();
-        bytes32 quoteKey = keccak256(abi.encode(quote.borrower, quote.nonce));
-        if (quoteUsed[quoteKey]) revert QuoteAlreadyUsed();
         bytes32 digest = _hashTypedDataV4(
             keccak256(
                 abi.encode(
@@ -216,6 +298,7 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
                     quote.borrower,
                     quote.positionWallet,
                     quote.bundleHash,
+                    quote.walletAuthorizationHash,
                     quote.relationshipDefinitionHash,
                     quote.solverArtifactHash,
                     quote.guaranteedFloor,
@@ -234,6 +317,7 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
         );
         if (ECDSA.recover(digest, signature) != riskPolicy.quoteSigner()) revert InvalidQuote();
         quoteUsed[quoteKey] = true;
+        walletAuthorizationUsed[authorizationKey] = true;
         riskPolicy.validateAndConsume(
             quote.positionWallet,
             quote.relationshipDefinitionHash,

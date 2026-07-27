@@ -15,7 +15,8 @@ import {MockCTFAdapter} from "../src/mocks/MockCTFAdapter.sol";
 contract EventClearLifecycleTest is Test {
     uint256 constant UNIT = 1e6;
     uint256 constant SIGNER_KEY = 0xA11CE;
-    address borrower = makeAddr("borrower");
+    uint256 constant BORROWER_KEY = 0xB0B0;
+    address borrower;
     address signer;
     bytes32 relationshipHash = keccak256("btc-close-ladder-v3");
     MockPUSD pusd;
@@ -30,6 +31,7 @@ contract EventClearLifecycleTest is Test {
 
     function setUp() public {
         signer = vm.addr(SIGNER_KEY);
+        borrower = vm.addr(BORROWER_KEY);
         pusd = new MockPUSD();
         ctf = new MockConditionalTokens();
         adapter = new MockCTFAdapter(ctf, pusd);
@@ -68,6 +70,7 @@ contract EventClearLifecycleTest is Test {
             borrower: borrower,
             positionWallet: borrower,
             bundleHash: bundleHash,
+            walletAuthorizationHash: bytes32(0),
             relationshipDefinitionHash: relationshipHash,
             solverArtifactHash: keccak256("proof"),
             guaranteedFloor: 100 * UNIT,
@@ -82,11 +85,12 @@ contract EventClearLifecycleTest is Test {
             fundingPool: address(pool),
             collateralToken: address(pusd)
         });
+        q.walletAuthorizationHash = vault.hashPositionWalletAuthorization(authorization(q));
     }
 
     function signature(EventClearVault.FinancingQuote memory q) internal view returns (bytes memory) {
         bytes32 typehash = keccak256(
-            "FinancingQuote(address borrower,address positionWallet,bytes32 bundleHash,bytes32 relationshipDefinitionHash,bytes32 solverArtifactHash,uint256 guaranteedFloor,uint256 principalAmount,uint256 grossAdvance,uint256 originationFee,uint256 netAdvance,uint256 expiry,uint256 nonce,uint256 chainId,address vault,address fundingPool,address collateralToken)"
+            "FinancingQuote(address borrower,address positionWallet,bytes32 bundleHash,bytes32 walletAuthorizationHash,bytes32 relationshipDefinitionHash,bytes32 solverArtifactHash,uint256 guaranteedFloor,uint256 principalAmount,uint256 grossAdvance,uint256 originationFee,uint256 netAdvance,uint256 expiry,uint256 nonce,uint256 chainId,address vault,address fundingPool,address collateralToken)"
         );
         bytes32 structHash = keccak256(
             abi.encode(
@@ -94,6 +98,7 @@ contract EventClearLifecycleTest is Test {
                 q.borrower,
                 q.positionWallet,
                 q.bundleHash,
+                q.walletAuthorizationHash,
                 q.relationshipDefinitionHash,
                 q.solverArtifactHash,
                 q.guaranteedFloor,
@@ -109,9 +114,78 @@ contract EventClearLifecycleTest is Test {
                 q.collateralToken
             )
         );
-        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", vault.domainSeparator(), structHash));
+        bytes32 domainSeparator = keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256(bytes("EventClear")),
+                keccak256(bytes("1")),
+                block.chainid,
+                address(vault)
+            )
+        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(SIGNER_KEY, digest);
         return abi.encodePacked(r, s, v);
+    }
+
+    function authorization(EventClearVault.FinancingQuote memory q)
+        internal
+        pure
+        returns (EventClearVault.PositionWalletAuthorization memory)
+    {
+        return EventClearVault.PositionWalletAuthorization({
+            controllingSigner: q.borrower,
+            borrower: q.borrower,
+            positionWallet: q.positionWallet,
+            bundleHash: q.bundleHash,
+            vault: q.vault,
+            chainId: q.chainId,
+            nonce: q.nonce,
+            expiry: q.expiry
+        });
+    }
+
+    function walletAuthorizationSignature(EventClearVault.PositionWalletAuthorization memory item)
+        internal
+        view
+        returns (bytes memory)
+    {
+        return walletAuthorizationProof(item, BORROWER_KEY);
+    }
+
+    function walletAuthorizationProof(EventClearVault.PositionWalletAuthorization memory item, uint256 signerKey)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 typehash = keccak256(
+            "PositionWalletAuthorization(address controllingSigner,address borrower,address positionWallet,bytes32 bundleHash,address vault,uint256 chainId,uint256 nonce,uint256 expiry)"
+        );
+        bytes32 structHash = keccak256(
+            abi.encode(
+                typehash,
+                item.controllingSigner,
+                item.borrower,
+                item.positionWallet,
+                item.bundleHash,
+                item.vault,
+                item.chainId,
+                item.nonce,
+                item.expiry
+            )
+        );
+        bytes32 domainSeparator = keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256(bytes("EventClear")),
+                keccak256(bytes("1")),
+                block.chainid,
+                address(vault)
+            )
+        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, digest);
+        return abi.encode(item, abi.encodePacked(r, s, v));
     }
 
     function legs()
@@ -139,7 +213,9 @@ contract EventClearLifecycleTest is Test {
         EventClearVault.FinancingQuote memory q = quote(bundleHash, 1, block.timestamp + 5 minutes);
         bytes memory sig = signature(q);
         vm.prank(borrower);
-        uint256 bundleId = vault.openBundle(q, sig, conditions, ids, outcomes, amounts, 3);
+        uint256 bundleId = vault.openBundle(
+            q, sig, walletAuthorizationSignature(authorization(q)), conditions, ids, outcomes, amounts, 3
+        );
         assertEq(pusd.balanceOf(borrower), 94_525_000);
         assertEq(claims.balanceOf(address(pool), claims.claimId(bundleId, claims.PRINCIPAL())), 100 * UNIT);
         ctf.resolve(conditions[0], UNIT, 0);
@@ -162,10 +238,10 @@ contract EventClearLifecycleTest is Test {
             quote(vault.hashBundle(conditions, ids, outcomes, amounts, 3, borrower, borrower), 7, block.timestamp + 1);
         bytes memory sig = signature(q);
         vm.prank(borrower);
-        vault.openBundle(q, sig, conditions, ids, outcomes, amounts, 3);
+        vault.openBundle(q, sig, walletAuthorizationSignature(authorization(q)), conditions, ids, outcomes, amounts, 3);
         vm.expectRevert(EventClearVault.QuoteAlreadyUsed.selector);
         vm.prank(borrower);
-        vault.openBundle(q, sig, conditions, ids, outcomes, amounts, 3);
+        vault.openBundle(q, sig, walletAuthorizationSignature(authorization(q)), conditions, ids, outcomes, amounts, 3);
     }
 
     function testShortfallDoesNotUsePoolAssets() public {
@@ -175,7 +251,9 @@ contract EventClearLifecycleTest is Test {
         );
         bytes memory sig = signature(q);
         vm.prank(borrower);
-        uint256 bundleId = vault.openBundle(q, sig, conditions, ids, outcomes, amounts, 3);
+        uint256 bundleId = vault.openBundle(
+            q, sig, walletAuthorizationSignature(authorization(q)), conditions, ids, outcomes, amounts, 3
+        );
         ctf.resolve(conditions[0], 500_000, 500_000);
         ctf.resolve(conditions[1], 750_000, 250_000);
         vault.settle(bundleId);
@@ -193,21 +271,48 @@ contract EventClearLifecycleTest is Test {
         bytes memory expiredSignature = signature(expired);
         vm.expectRevert(EventClearVault.QuoteExpired.selector);
         vm.prank(borrower);
-        vault.openBundle(expired, expiredSignature, conditions, ids, outcomes, amounts, 3);
+        vault.openBundle(
+            expired,
+            expiredSignature,
+            walletAuthorizationSignature(authorization(expired)),
+            conditions,
+            ids,
+            outcomes,
+            amounts,
+            3
+        );
 
         EventClearVault.FinancingQuote memory wrongChain = quote(bundleHash, 11, block.timestamp + 5 minutes);
         wrongChain.chainId = block.chainid + 1;
         bytes memory wrongChainSignature = signature(wrongChain);
         vm.expectRevert(EventClearVault.InvalidQuote.selector);
         vm.prank(borrower);
-        vault.openBundle(wrongChain, wrongChainSignature, conditions, ids, outcomes, amounts, 3);
+        vault.openBundle(
+            wrongChain,
+            wrongChainSignature,
+            walletAuthorizationSignature(authorization(wrongChain)),
+            conditions,
+            ids,
+            outcomes,
+            amounts,
+            3
+        );
 
         EventClearVault.FinancingQuote memory wrongVault = quote(bundleHash, 12, block.timestamp + 5 minutes);
         wrongVault.vault = address(0xBEEF);
         bytes memory wrongVaultSignature = signature(wrongVault);
         vm.expectRevert(EventClearVault.InvalidQuote.selector);
         vm.prank(borrower);
-        vault.openBundle(wrongVault, wrongVaultSignature, conditions, ids, outcomes, amounts, 3);
+        vault.openBundle(
+            wrongVault,
+            wrongVaultSignature,
+            walletAuthorizationSignature(authorization(wrongVault)),
+            conditions,
+            ids,
+            outcomes,
+            amounts,
+            3
+        );
     }
 
     function testPauseAndUnresolvedSettlementGates() public {
@@ -219,11 +324,13 @@ contract EventClearLifecycleTest is Test {
         vault.setOriginationsPaused(true);
         vm.expectRevert(EventClearVault.OriginationPaused.selector);
         vm.prank(borrower);
-        vault.openBundle(q, sig, conditions, ids, outcomes, amounts, 3);
+        vault.openBundle(q, sig, walletAuthorizationSignature(authorization(q)), conditions, ids, outcomes, amounts, 3);
 
         vault.setOriginationsPaused(false);
         vm.prank(borrower);
-        uint256 bundleId = vault.openBundle(q, sig, conditions, ids, outcomes, amounts, 3);
+        uint256 bundleId = vault.openBundle(
+            q, sig, walletAuthorizationSignature(authorization(q)), conditions, ids, outcomes, amounts, 3
+        );
         vm.expectRevert(EventClearVault.ConditionsUnresolved.selector);
         vault.settle(bundleId);
     }
@@ -237,7 +344,9 @@ contract EventClearLifecycleTest is Test {
         );
         bytes memory sig = signature(q);
         vm.prank(borrower);
-        uint256 bundleId = vault.openBundle(q, sig, conditions, ids, outcomes, amounts, 3);
+        uint256 bundleId = vault.openBundle(
+            q, sig, walletAuthorizationSignature(authorization(q)), conditions, ids, outcomes, amounts, 3
+        );
 
         ctf.resolve(conditions[0], first, UNIT - first);
         ctf.resolve(conditions[1], UNIT - second, second);
@@ -263,7 +372,9 @@ contract EventClearLifecycleTest is Test {
         );
         bytes memory sig = signature(q);
         vm.prank(borrower);
-        uint256 bundleId = vault.openBundle(q, sig, conditions, ids, outcomes, amounts, 3);
+        uint256 bundleId = vault.openBundle(
+            q, sig, walletAuthorizationSignature(authorization(q)), conditions, ids, outcomes, amounts, 3
+        );
 
         assertEq(claims.claimId(bundleId, claims.PRINCIPAL()), uint256(keccak256(abi.encode(bundleId, uint8(1)))));
         assertEq(claims.totalSupply(claims.claimId(bundleId, claims.RESIDUAL())), 1e18);
@@ -281,21 +392,48 @@ contract EventClearLifecycleTest is Test {
         bytes memory wrongPoolSignature = signature(wrongPool);
         vm.expectRevert(EventClearVault.InvalidQuote.selector);
         vm.prank(borrower);
-        vault.openBundle(wrongPool, wrongPoolSignature, conditions, ids, outcomes, amounts, 3);
+        vault.openBundle(
+            wrongPool,
+            wrongPoolSignature,
+            walletAuthorizationSignature(authorization(wrongPool)),
+            conditions,
+            ids,
+            outcomes,
+            amounts,
+            3
+        );
 
         EventClearVault.FinancingQuote memory wrongCollateral = quote(bundleHash, 23, block.timestamp + 5 minutes);
         wrongCollateral.collateralToken = address(0xCAFE);
         bytes memory wrongCollateralSignature = signature(wrongCollateral);
         vm.expectRevert(EventClearVault.InvalidQuote.selector);
         vm.prank(borrower);
-        vault.openBundle(wrongCollateral, wrongCollateralSignature, conditions, ids, outcomes, amounts, 3);
+        vault.openBundle(
+            wrongCollateral,
+            wrongCollateralSignature,
+            walletAuthorizationSignature(authorization(wrongCollateral)),
+            conditions,
+            ids,
+            outcomes,
+            amounts,
+            3
+        );
 
         EventClearVault.FinancingQuote memory wrongSigner = quote(bundleHash, 24, block.timestamp + 5 minutes);
         bytes32 digest = keccak256("not-the-quote");
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(0xB0B, digest);
         vm.expectRevert(EventClearVault.InvalidQuote.selector);
         vm.prank(borrower);
-        vault.openBundle(wrongSigner, abi.encodePacked(r, s, v), conditions, ids, outcomes, amounts, 3);
+        vault.openBundle(
+            wrongSigner,
+            abi.encodePacked(r, s, v),
+            walletAuthorizationSignature(authorization(wrongSigner)),
+            conditions,
+            ids,
+            outcomes,
+            amounts,
+            3
+        );
     }
 
     function testRiskCapsMissingApprovalAndSettlementDuringPauses() public {
@@ -306,7 +444,16 @@ contract EventClearLifecycleTest is Test {
         riskPolicy.setLimits(9_500, 1 days, 90 * UNIT, 1_000 * UNIT, 1_000 * UNIT, 1_000 * UNIT, 1_000 * UNIT);
         vm.expectRevert(RiskPolicy.RiskLimitExceeded.selector);
         vm.prank(borrower);
-        vault.openBundle(capped, cappedSignature, conditions, ids, outcomes, amounts, 3);
+        vault.openBundle(
+            capped,
+            cappedSignature,
+            walletAuthorizationSignature(authorization(capped)),
+            conditions,
+            ids,
+            outcomes,
+            amounts,
+            3
+        );
 
         riskPolicy.setLimits(9_500, 1 days, 1_000 * UNIT, 1_000 * UNIT, 1_000 * UNIT, 1_000 * UNIT, 1_000 * UNIT);
         vm.prank(borrower);
@@ -315,14 +462,25 @@ contract EventClearLifecycleTest is Test {
         bytes memory noApprovalSignature = signature(noApproval);
         vm.expectRevert();
         vm.prank(borrower);
-        vault.openBundle(noApproval, noApprovalSignature, conditions, ids, outcomes, amounts, 3);
+        vault.openBundle(
+            noApproval,
+            noApprovalSignature,
+            walletAuthorizationSignature(authorization(noApproval)),
+            conditions,
+            ids,
+            outcomes,
+            amounts,
+            3
+        );
         vm.prank(borrower);
         ctf.setApprovalForAll(address(vault), true);
 
         EventClearVault.FinancingQuote memory q = quote(bundleHash, 27, block.timestamp + 5 minutes);
         bytes memory sig = signature(q);
         vm.prank(borrower);
-        uint256 bundleId = vault.openBundle(q, sig, conditions, ids, outcomes, amounts, 3);
+        uint256 bundleId = vault.openBundle(
+            q, sig, walletAuthorizationSignature(authorization(q)), conditions, ids, outcomes, amounts, 3
+        );
         vault.setOriginationsPaused(true);
         vault.pause();
         riskPolicy.setOriginationsPaused(true);
@@ -332,5 +490,114 @@ contract EventClearLifecycleTest is Test {
         claims.pause();
         pool.redeemPrincipal(IPrincipalVault(address(vault)), bundleId, 100 * UNIT);
         assertEq(riskPolicy.globalExposure(), 0);
+    }
+
+    function testVictimWalletApprovalCannotBeUsedByAnotherBorrower() public {
+        address victim = makeAddr("victim");
+        (bytes32[] memory conditions, uint256[] memory ids, uint8[] memory outcomes, uint256[] memory amounts) = legs();
+        ctf.mint(victim, ids[0], amounts[0]);
+        ctf.mint(victim, ids[1], amounts[1]);
+        vm.prank(victim);
+        ctf.setApprovalForAll(address(vault), true);
+
+        EventClearVault.FinancingQuote memory q = quote(
+            vault.hashBundle(conditions, ids, outcomes, amounts, 3, victim, borrower), 31, block.timestamp + 5 minutes
+        );
+        q.positionWallet = victim;
+        EventClearVault.PositionWalletAuthorization memory item = authorization(q);
+        q.walletAuthorizationHash = vault.hashPositionWalletAuthorization(item);
+        bytes memory sig = signature(q);
+
+        vm.expectRevert(EventClearVault.PositionWalletNotAuthorized.selector);
+        vm.prank(borrower);
+        vault.openBundle(q, sig, walletAuthorizationProof(item, BORROWER_KEY), conditions, ids, outcomes, amounts, 3);
+        assertEq(ctf.balanceOf(victim, ids[0]), amounts[0]);
+        assertEq(ctf.balanceOf(victim, ids[1]), amounts[1]);
+    }
+
+    function testModifiedAndExpiredWalletAuthorizationsFail() public {
+        (bytes32[] memory conditions, uint256[] memory ids, uint8[] memory outcomes, uint256[] memory amounts) = legs();
+        EventClearVault.FinancingQuote memory q = quote(
+            vault.hashBundle(conditions, ids, outcomes, amounts, 3, borrower, borrower), 32, block.timestamp + 5 minutes
+        );
+        EventClearVault.PositionWalletAuthorization memory modified = authorization(q);
+        modified.bundleHash = keccak256("different-legs");
+        bytes memory sig = signature(q);
+        vm.expectRevert(EventClearVault.PositionWalletNotAuthorized.selector);
+        vm.prank(borrower);
+        vault.openBundle(
+            q, sig, walletAuthorizationProof(modified, BORROWER_KEY), conditions, ids, outcomes, amounts, 3
+        );
+
+        EventClearVault.PositionWalletAuthorization memory expired = authorization(q);
+        expired.nonce = 33;
+        expired.expiry = block.timestamp - 1;
+        q.walletAuthorizationHash = vault.hashPositionWalletAuthorization(expired);
+        q.nonce = 33;
+        sig = signature(q);
+        vm.expectRevert(EventClearVault.WalletAuthorizationExpired.selector);
+        vm.prank(borrower);
+        vault.openBundle(q, sig, walletAuthorizationProof(expired, BORROWER_KEY), conditions, ids, outcomes, amounts, 3);
+    }
+
+    function testWalletAuthorizationReplayAndWrongSignerFail() public {
+        (bytes32[] memory conditions, uint256[] memory ids, uint8[] memory outcomes, uint256[] memory amounts) = legs();
+        EventClearVault.FinancingQuote memory q = quote(
+            vault.hashBundle(conditions, ids, outcomes, amounts, 3, borrower, borrower), 34, block.timestamp + 5 minutes
+        );
+        EventClearVault.PositionWalletAuthorization memory item = authorization(q);
+        bytes memory sig = signature(q);
+        bytes memory proof = walletAuthorizationProof(item, BORROWER_KEY);
+        vm.prank(borrower);
+        vault.openBundle(q, sig, proof, conditions, ids, outcomes, amounts, 3);
+
+        EventClearVault.FinancingQuote memory replayQuote = q;
+        replayQuote.nonce = 3400;
+        bytes memory replayQuoteSignature = signature(replayQuote);
+        vm.expectRevert(EventClearVault.WalletAuthorizationAlreadyUsed.selector);
+        vm.prank(borrower);
+        vault.openBundle(replayQuote, replayQuoteSignature, proof, conditions, ids, outcomes, amounts, 3);
+
+        EventClearVault.FinancingQuote memory next = quote(
+            vault.hashBundle(conditions, ids, outcomes, amounts, 3, borrower, borrower), 35, block.timestamp + 5 minutes
+        );
+        EventClearVault.PositionWalletAuthorization memory nextItem = authorization(next);
+        vm.expectRevert(EventClearVault.PositionWalletNotAuthorized.selector);
+        vm.prank(borrower);
+        vault.openBundle(
+            next, signature(next), walletAuthorizationProof(nextItem, 0xB0B), conditions, ids, outcomes, amounts, 3
+        );
+    }
+
+    function testWalletAuthorizationBindsChainVaultAndExactBundle() public {
+        (bytes32[] memory conditions, uint256[] memory ids, uint8[] memory outcomes, uint256[] memory amounts) = legs();
+        EventClearVault.FinancingQuote memory q = quote(
+            vault.hashBundle(conditions, ids, outcomes, amounts, 3, borrower, borrower), 36, block.timestamp + 5 minutes
+        );
+        bytes memory sig = signature(q);
+
+        EventClearVault.PositionWalletAuthorization memory wrongChain = authorization(q);
+        wrongChain.chainId += 1;
+        vm.expectRevert(EventClearVault.PositionWalletNotAuthorized.selector);
+        vm.prank(borrower);
+        vault.openBundle(
+            q, sig, walletAuthorizationProof(wrongChain, BORROWER_KEY), conditions, ids, outcomes, amounts, 3
+        );
+
+        EventClearVault.PositionWalletAuthorization memory wrongVault = authorization(q);
+        wrongVault.vault = address(0xBEEF);
+        vm.expectRevert(EventClearVault.PositionWalletNotAuthorized.selector);
+        vm.prank(borrower);
+        vault.openBundle(
+            q, sig, walletAuthorizationProof(wrongVault, BORROWER_KEY), conditions, ids, outcomes, amounts, 3
+        );
+
+        EventClearVault.PositionWalletAuthorization memory wrongBundle = authorization(q);
+        wrongBundle.bundleHash = keccak256(abi.encode(q.bundleHash, uint256(1)));
+        vm.expectRevert(EventClearVault.PositionWalletNotAuthorized.selector);
+        vm.prank(borrower);
+        vault.openBundle(
+            q, sig, walletAuthorizationProof(wrongBundle, BORROWER_KEY), conditions, ids, outcomes, amounts, 3
+        );
     }
 }

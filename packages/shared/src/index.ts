@@ -64,6 +64,7 @@ export type FinancingQuote = {
   borrower: `0x${string}`;
   positionWallet: `0x${string}`;
   bundleHash: `0x${string}`;
+  walletAuthorizationHash: `0x${string}`;
   relationshipDefinitionHash: `0x${string}`;
   solverArtifactHash: `0x${string}`;
   guaranteedFloor: bigint;
@@ -77,6 +78,17 @@ export type FinancingQuote = {
   vault: `0x${string}`;
   fundingPool: `0x${string}`;
   collateralToken: `0x${string}`;
+};
+
+export type PositionWalletAuthorization = {
+  controllingSigner: `0x${string}`;
+  borrower: `0x${string}`;
+  positionWallet: `0x${string}`;
+  bundleHash: `0x${string}`;
+  vault: `0x${string}`;
+  chainId: bigint;
+  nonce: bigint;
+  expiry: bigint;
 };
 
 export const canonicalize = (value: unknown): string => {

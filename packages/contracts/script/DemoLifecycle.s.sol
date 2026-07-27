@@ -74,6 +74,7 @@ contract DemoLifecycle is Script {
             borrower: borrower,
             positionWallet: borrower,
             bundleHash: vault.hashBundle(conditions, ids, outcomes, amounts, 3, borrower, borrower),
+            walletAuthorizationHash: bytes32(0),
             relationshipDefinitionHash: relationshipHash,
             solverArtifactHash: keccak256("demo-proof-artifact"),
             guaranteedFloor: 100 * UNIT,
@@ -88,11 +89,15 @@ contract DemoLifecycle is Script {
             fundingPool: address(pool),
             collateralToken: address(pusd)
         });
+        quote.walletAuthorizationHash =
+            vault.hashPositionWalletAuthorization(vault.positionWalletAuthorizationForQuote(quote));
         bytes memory signature = _sign(vault, quote, signerKey);
+        bytes memory authorizationSignature = _signWalletAuthorization(vault, quote, signerKey);
 
         vm.startBroadcast(signerKey);
         ctf.setApprovalForAll(address(vault), true);
-        uint256 bundleId = vault.openBundle(quote, signature, conditions, ids, outcomes, amounts, 3);
+        uint256 bundleId =
+            vault.openBundle(quote, signature, authorizationSignature, conditions, ids, outcomes, amounts, 3);
         vm.stopBroadcast();
 
         vm.startBroadcast(deployerKey);
@@ -124,7 +129,7 @@ contract DemoLifecycle is Script {
         returns (bytes memory)
     {
         bytes32 typehash = keccak256(
-            "FinancingQuote(address borrower,address positionWallet,bytes32 bundleHash,bytes32 relationshipDefinitionHash,bytes32 solverArtifactHash,uint256 guaranteedFloor,uint256 principalAmount,uint256 grossAdvance,uint256 originationFee,uint256 netAdvance,uint256 expiry,uint256 nonce,uint256 chainId,address vault,address fundingPool,address collateralToken)"
+            "FinancingQuote(address borrower,address positionWallet,bytes32 bundleHash,bytes32 walletAuthorizationHash,bytes32 relationshipDefinitionHash,bytes32 solverArtifactHash,uint256 guaranteedFloor,uint256 principalAmount,uint256 grossAdvance,uint256 originationFee,uint256 netAdvance,uint256 expiry,uint256 nonce,uint256 chainId,address vault,address fundingPool,address collateralToken)"
         );
         bytes32 structHash = keccak256(
             abi.encode(
@@ -132,6 +137,7 @@ contract DemoLifecycle is Script {
                 quote.borrower,
                 quote.positionWallet,
                 quote.bundleHash,
+                quote.walletAuthorizationHash,
                 quote.relationshipDefinitionHash,
                 quote.solverArtifactHash,
                 quote.guaranteedFloor,
@@ -150,5 +156,17 @@ contract DemoLifecycle is Script {
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", vault.domainSeparator(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, digest);
         return abi.encodePacked(r, s, v);
+    }
+
+    function _signWalletAuthorization(
+        EventClearVault vault,
+        EventClearVault.FinancingQuote memory quote,
+        uint256 signerKey
+    ) internal view returns (bytes memory) {
+        bytes32 digest = vault.positionWalletAuthorizationDigest(vault.positionWalletAuthorizationForQuote(quote));
+        EventClearVault.PositionWalletAuthorization memory authorization =
+            vault.positionWalletAuthorizationForQuote(quote);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, digest);
+        return abi.encode(authorization, abi.encodePacked(r, s, v));
     }
 }

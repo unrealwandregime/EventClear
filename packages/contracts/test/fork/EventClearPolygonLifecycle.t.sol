@@ -24,7 +24,7 @@ contract EventClearPolygonLifecycleForkTest is Test {
     uint256 private constant SIGNER_KEY = 0xA11CE;
     bytes32 private constant RELATIONSHIP_HASH = keccak256("polygon-standard-resolved-v1");
 
-    address private borrower = makeAddr("polygon-borrower");
+    address private borrower;
     IERC20 private pusd;
     IPolymarketConditionalTokens private ctf;
     PolymarketStandardCTFAdapter private adapter;
@@ -41,6 +41,7 @@ contract EventClearPolygonLifecycleForkTest is Test {
 
     function setUp() public {
         if (block.chainid != 137) return;
+        borrower = vm.addr(SIGNER_KEY);
 
         string memory manifest = vm.readFile("../../config/contracts/polygon-mainnet.json");
         address ctfAddress = addressAt(manifest, "conditionalTokens");
@@ -102,6 +103,7 @@ contract EventClearPolygonLifecycleForkTest is Test {
             borrower: borrower,
             positionWallet: borrower,
             bundleHash: bundleHash,
+            walletAuthorizationHash: bytes32(0),
             relationshipDefinitionHash: RELATIONSHIP_HASH,
             solverArtifactHash: keccak256("fork-proof"),
             guaranteedFloor: UNIT,
@@ -116,10 +118,13 @@ contract EventClearPolygonLifecycleForkTest is Test {
             fundingPool: address(pool),
             collateralToken: address(pusd)
         });
+        q.walletAuthorizationHash = vault.hashPositionWalletAuthorization(vault.positionWalletAuthorizationForQuote(q));
 
         bytes memory quoteSignature = signature(q);
+        bytes memory authorizationSignature = walletAuthorizationSignature(q);
         vm.prank(borrower);
-        uint256 bundleId = vault.openBundle(q, quoteSignature, conditions, ids, outcomes, amounts, 1);
+        uint256 bundleId =
+            vault.openBundle(q, quoteSignature, authorizationSignature, conditions, ids, outcomes, amounts, 1);
         assertEq(pusd.balanceOf(borrower), 945_250);
         assertEq(ctf.balanceOf(address(vault), noTokenId), UNIT);
         assertEq(pool.outstandingAdvanceCostBasis(), 950_000);
@@ -146,7 +151,7 @@ contract EventClearPolygonLifecycleForkTest is Test {
 
     function signature(EventClearVault.FinancingQuote memory q) internal view returns (bytes memory) {
         bytes32 typehash = keccak256(
-            "FinancingQuote(address borrower,address positionWallet,bytes32 bundleHash,bytes32 relationshipDefinitionHash,bytes32 solverArtifactHash,uint256 guaranteedFloor,uint256 principalAmount,uint256 grossAdvance,uint256 originationFee,uint256 netAdvance,uint256 expiry,uint256 nonce,uint256 chainId,address vault,address fundingPool,address collateralToken)"
+            "FinancingQuote(address borrower,address positionWallet,bytes32 bundleHash,bytes32 walletAuthorizationHash,bytes32 relationshipDefinitionHash,bytes32 solverArtifactHash,uint256 guaranteedFloor,uint256 principalAmount,uint256 grossAdvance,uint256 originationFee,uint256 netAdvance,uint256 expiry,uint256 nonce,uint256 chainId,address vault,address fundingPool,address collateralToken)"
         );
         bytes32 structHash = keccak256(
             abi.encode(
@@ -154,6 +159,7 @@ contract EventClearPolygonLifecycleForkTest is Test {
                 q.borrower,
                 q.positionWallet,
                 q.bundleHash,
+                q.walletAuthorizationHash,
                 q.relationshipDefinitionHash,
                 q.solverArtifactHash,
                 q.guaranteedFloor,
@@ -172,5 +178,16 @@ contract EventClearPolygonLifecycleForkTest is Test {
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", vault.domainSeparator(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(SIGNER_KEY, digest);
         return abi.encodePacked(r, s, v);
+    }
+
+    function walletAuthorizationSignature(EventClearVault.FinancingQuote memory q)
+        internal
+        view
+        returns (bytes memory)
+    {
+        EventClearVault.PositionWalletAuthorization memory authorization = vault.positionWalletAuthorizationForQuote(q);
+        bytes32 digest = vault.positionWalletAuthorizationDigest(authorization);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(SIGNER_KEY, digest);
+        return abi.encode(authorization, abi.encodePacked(r, s, v));
     }
 }

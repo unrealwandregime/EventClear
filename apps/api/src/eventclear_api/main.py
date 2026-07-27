@@ -106,6 +106,25 @@ def authenticated_session(authorization: str | None = Header(default=None)) -> d
     return session
 
 
+def bind_eoa_quote_identity(payload: dict, session: dict) -> dict:
+    borrower = payload.get("borrower") or payload.get("accountWallet")
+    position_wallet = payload.get("positionWallet") or payload.get("accountWallet")
+    if not isinstance(borrower, str) or session["address"].lower() != borrower.lower():
+        raise HTTPException(403, detail={"code": "SIWE_ADDRESS_MISMATCH"})
+    if not isinstance(position_wallet, str) or position_wallet.lower() != borrower.lower():
+        raise HTTPException(422, detail={"code": "POSITION_WALLET_NOT_AUTHORIZED"})
+    requested_chain = payload.get("chainId", settings.chain_id)
+    if int(requested_chain) != settings.chain_id:
+        raise HTTPException(422, detail={"code": "CHAIN_ID_MISMATCH"})
+    return {
+        **deepcopy(payload),
+        "accountWallet": borrower,
+        "borrower": borrower,
+        "positionWallet": position_wallet,
+        "chainId": settings.chain_id,
+    }
+
+
 @app.get("/api/v1/health")
 def health():
     return {"status": "ok", "mode": settings.normalized_mode, "database": "configured", "chainId": settings.chain_id}
@@ -405,9 +424,10 @@ def verify_analysis(analysis_id: str):
 
 
 @app.post("/api/v1/quotes")
-async def quote(payload: dict):
+async def quote(payload: dict, current: dict = Depends(authenticated_session)):
     if settings.normalized_mode == "production-readonly":
         raise HTTPException(403, detail={"code": "PRODUCTION_READONLY"})
+    payload = bind_eoa_quote_identity(payload, current)
     relationship = store.get_relationship_by_hash(
         payload.get("solverRequest", {}).get("relationshipDefinitionHash", "")
     )
@@ -450,23 +470,24 @@ def get_quote(quote_id: str):
 
 
 @app.post("/api/v1/quotes/{quote_id}/refresh")
-async def refresh_quote(quote_id: str):
+async def refresh_quote(quote_id: str, current: dict = Depends(authenticated_session)):
     previous = store.get_quote(quote_id)
     if previous is None:
         raise HTTPException(404, detail={"code": "QUOTE_NOT_FOUND"})
     if settings.normalized_mode == "production-readonly":
         raise HTTPException(403, detail={"code": "PRODUCTION_READONLY"})
+    trusted_previous_payload = bind_eoa_quote_identity(previous["requestPayload"], current)
     if settings.normalized_mode not in {"local", "test"}:
         token_ids = [
             str(leg.get("tokenId", ""))
-            for leg in previous.get("requestPayload", {}).get("solverRequest", {}).get("legs", [])
+            for leg in trusted_previous_payload.get("solverRequest", {}).get("legs", [])
             if isinstance(leg, dict)
         ]
         try:
             await require_fresh_books(token_ids)
         except RuntimeError as exc:
             raise HTTPException(503, detail={"code": str(exc)}) from exc
-    refreshed = issue_quote(previous["requestPayload"], settings, store.allocate_quote_nonce())
+    refreshed = issue_quote(trusted_previous_payload, settings, store.allocate_quote_nonce())
     store.save_quote(refreshed["id"], refreshed)
     return refreshed
 

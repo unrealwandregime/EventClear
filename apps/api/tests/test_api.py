@@ -21,6 +21,12 @@ class ApiTests(unittest.TestCase):
         self.client = TestClient(app)
 
     @staticmethod
+    def session_headers(address: str) -> dict[str, str]:
+        token = f"test-session-{address.lower()}"
+        store.create_session(token, address, time.time() + 300)
+        return {"authorization": f"Bearer {token}"}
+
+    @staticmethod
     def siwe_message(address: str, nonce: str) -> str:
         issued_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
         return (
@@ -138,7 +144,11 @@ class ApiTests(unittest.TestCase):
                 },
             },
         }
-        response = self.client.post("/api/v1/quotes", json=payload)
+        response = self.client.post(
+            "/api/v1/quotes",
+            json=payload,
+            headers=self.session_headers(payload["accountWallet"]),
+        )
         self.assertEqual(response.status_code, 200, response.text)
         body = response.json()
         self.assertEqual(body["quote"]["grossAdvance"], "95000000")
@@ -146,6 +156,11 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(body["quote"]["netAdvance"], "94525000")
         self.assertTrue(body["signature"].startswith("0x"))
         self.assertEqual(len(body["quote"]["bundleHash"]), 66)
+        self.assertEqual(len(body["quote"]["walletAuthorizationHash"]), 66)
+        self.assertEqual(
+            body["walletAuthorization"]["authorization"]["positionWallet"],
+            payload["accountWallet"],
+        )
 
     def test_quote_ignores_client_supplied_payout_worlds(self):
         definition_hash = "0x" + "ab" * 32
@@ -171,10 +186,44 @@ class ApiTests(unittest.TestCase):
                 },
             },
         }
-        response = self.client.post("/api/v1/quotes", json=payload)
+        response = self.client.post(
+            "/api/v1/quotes",
+            json=payload,
+            headers=self.session_headers(payload["accountWallet"]),
+        )
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["quote"]["guaranteedFloor"], "100000000")
         self.assertEqual(response.json()["requestPayload"]["solverRequest"]["definitionVersion"], 3)
+
+    def test_quote_rejects_siwe_and_position_wallet_mismatch(self):
+        payload = {
+            "accountWallet": "0x0000000000000000000000000000000000000001",
+            "positionWallet": "0x0000000000000000000000000000000000000002",
+            "solverRequest": {
+                "relationshipDefinitionHash": "0x" + "ab" * 32,
+                "definitionVersion": 3,
+                "legs": [],
+                "payoutModel": {},
+            },
+        }
+        wrong_session = self.client.post(
+            "/api/v1/quotes",
+            json=payload,
+            headers=self.session_headers("0x0000000000000000000000000000000000000003"),
+        )
+        self.assertEqual(wrong_session.status_code, 403)
+        self.assertEqual(wrong_session.json()["detail"]["code"], "SIWE_ADDRESS_MISMATCH")
+
+        wrong_position_wallet = self.client.post(
+            "/api/v1/quotes",
+            json=payload,
+            headers=self.session_headers(payload["accountWallet"]),
+        )
+        self.assertEqual(wrong_position_wallet.status_code, 422)
+        self.assertEqual(
+            wrong_position_wallet.json()["detail"]["code"],
+            "POSITION_WALLET_NOT_AUTHORIZED",
+        )
 
     def test_transaction_preparation_returns_executable_calldata(self):
         receiver = "0x0000000000000000000000000000000000000001"

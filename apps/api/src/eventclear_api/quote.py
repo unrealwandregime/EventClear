@@ -72,6 +72,41 @@ def bundle_hash(
     ).hex()
 
 
+def position_wallet_authorization_hash(authorization: dict) -> str:
+    typehash = keccak(
+        text=(
+            "PositionWalletAuthorization(address controllingSigner,address borrower,address positionWallet,"
+            "bytes32 bundleHash,address vault,uint256 chainId,uint256 nonce,uint256 expiry)"
+        )
+    )
+    return "0x" + keccak(
+        encode(
+            [
+                "bytes32",
+                "address",
+                "address",
+                "address",
+                "bytes32",
+                "address",
+                "uint256",
+                "uint256",
+                "uint256",
+            ],
+            [
+                typehash,
+                authorization["controllingSigner"],
+                authorization["borrower"],
+                authorization["positionWallet"],
+                bytes.fromhex(authorization["bundleHash"].removeprefix("0x")),
+                authorization["vault"],
+                authorization["chainId"],
+                authorization["nonce"],
+                authorization["expiry"],
+            ],
+        )
+    ).hex()
+
+
 def issue_quote(payload: dict, settings: Settings, nonce: int) -> dict:
     request = SolverRequest.model_validate(payload["solverRequest"])
     result = solve(request)
@@ -87,18 +122,30 @@ def issue_quote(payload: dict, settings: Settings, nonce: int) -> dict:
     position_wallet = payload.get("positionWallet", payload.get("accountWallet"))
     if not borrower or not position_wallet:
         raise ValueError("BORROWER_AND_POSITION_WALLET_REQUIRED")
+    exact_bundle_hash = bundle_hash(
+        legs,
+        adapter=settings.adapter_address,
+        relationship_version=request.relationshipVersion,
+        position_wallet=position_wallet,
+        borrower=borrower,
+        chain_id=settings.chain_id,
+        vault=settings.vault_address,
+    )
+    wallet_authorization = {
+        "controllingSigner": borrower,
+        "borrower": borrower,
+        "positionWallet": position_wallet,
+        "bundleHash": exact_bundle_hash,
+        "vault": settings.vault_address,
+        "chainId": settings.chain_id,
+        "nonce": nonce,
+        "expiry": expiry,
+    }
     message = {
         "borrower": borrower,
         "positionWallet": position_wallet,
-        "bundleHash": bundle_hash(
-            legs,
-            adapter=settings.adapter_address,
-            relationship_version=request.relationshipVersion,
-            position_wallet=position_wallet,
-            borrower=borrower,
-            chain_id=settings.chain_id,
-            vault=settings.vault_address,
-        ),
+        "bundleHash": exact_bundle_hash,
+        "walletAuthorizationHash": position_wallet_authorization_hash(wallet_authorization),
         "relationshipDefinitionHash": request.relationshipDefinitionHash,
         "solverArtifactHash": result.artifactHash,
         "guaranteedFloor": floor,
@@ -118,6 +165,7 @@ def issue_quote(payload: dict, settings: Settings, nonce: int) -> dict:
         {"name": "borrower", "type": "address"},
         {"name": "positionWallet", "type": "address"},
         {"name": "bundleHash", "type": "bytes32"},
+        {"name": "walletAuthorizationHash", "type": "bytes32"},
         {"name": "relationshipDefinitionHash", "type": "bytes32"},
         {"name": "solverArtifactHash", "type": "bytes32"},
         {"name": "guaranteedFloor", "type": "uint256"},
@@ -134,6 +182,18 @@ def issue_quote(payload: dict, settings: Settings, nonce: int) -> dict:
     ]}
     signable = encode_typed_data(domain, types, message)
     signature = sign_typed_data(signable, settings).hex()
+    wallet_authorization_types = {
+        "PositionWalletAuthorization": [
+            {"name": "controllingSigner", "type": "address"},
+            {"name": "borrower", "type": "address"},
+            {"name": "positionWallet", "type": "address"},
+            {"name": "bundleHash", "type": "bytes32"},
+            {"name": "vault", "type": "address"},
+            {"name": "chainId", "type": "uint256"},
+            {"name": "nonce", "type": "uint256"},
+            {"name": "expiry", "type": "uint256"},
+        ]
+    }
     return {
         "id": str(uuid.uuid4()),
         "status": "ISSUED",
@@ -141,5 +201,17 @@ def issue_quote(payload: dict, settings: Settings, nonce: int) -> dict:
         "signature": "0x" + signature.removeprefix("0x"),
         "solverResult": result.model_dump(mode="json"),
         "typedData": {"domain": domain, "types": types, "primaryType": "FinancingQuote", "message": message},
+        "walletAuthorization": {
+            "authorization": {
+                key: str(value) if isinstance(value, int) else value
+                for key, value in wallet_authorization.items()
+            },
+            "typedData": {
+                "domain": domain,
+                "types": wallet_authorization_types,
+                "primaryType": "PositionWalletAuthorization",
+                "message": wallet_authorization,
+            },
+        },
         "requestPayload": payload,
     }

@@ -23,8 +23,6 @@ Baseline commit: `7d65bb3bf8fd5d714a3c8a536389ebc5f2e76b10`
 
 In progress:
 
-- Strict EOA position-wallet authorization and future smart-wallet signature
-  preparation.
 - Reviewed resolution timestamps and duration enforcement independent of quote
   expiry.
 - Settlement-only fee realization.
@@ -33,6 +31,18 @@ In progress:
 
 The public deployment remains `production-readonly`. No EventClear mainnet
 contracts or capital have been activated.
+
+Completed in this sprint:
+
+- Quote API session binding enforces SIWE address = borrower = EOA position
+  wallet.
+- `EventClearVault` enforces transaction sender = borrower = position wallet,
+  verifies a separately signed versioned wallet authorization, and consumes its
+  nonce in a separate replay domain.
+- Adversarial coverage protects previously approved victim wallets and rejects
+  modified, expired, replayed, wrong-signer, wrong-chain, wrong-vault and
+  different-bundle authorizations.
+- Deposit Wallet, Proxy, Safe and unknown contract wallets remain read-only.
 
 ## Milestone 0 — Existing repository audit
 
