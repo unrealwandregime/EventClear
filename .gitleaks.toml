@@ -1,0 +1,14 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Deterministic local seed claim identifier (not a credential)"
+paths = ['''apps/api/src/eventclear_api/seed\.py''']
+regexTarget = "match"
+regexes = ['''residual-418''']
+
+[[allowlists]]
+description = "Deterministic API-test idempotency fixture (not a credential)"
+paths = ['''apps/api/tests/test_api\.py''']
+regexTarget = "match"
+regexes = ['''redemption-test-0001''']
