@@ -1,0 +1,10 @@
+{
+  "name": "@eventclear/sdk",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@polymarket/client": "latest",
+    "viem": "^2.33.2"
+  }
+}

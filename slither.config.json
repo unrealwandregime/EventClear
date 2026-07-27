@@ -1,0 +1,6 @@
+{
+  "filter_paths": "lib|test|script",
+  "solc_remaps": ["@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/"],
+  "exclude_dependencies": true,
+  "fail_on": "high"
+}

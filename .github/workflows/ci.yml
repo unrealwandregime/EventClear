@@ -1,0 +1,68 @@
+name: CI
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm build
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -e apps/solver -e apps/api pytest ruff
+      - run: ruff format --check apps
+      - run: ruff check apps
+      - run: pytest apps/solver/tests apps/api/tests
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+      - working-directory: packages/contracts
+        run: |
+          forge install OpenZeppelin/openzeppelin-contracts@v5.4.0 foundry-rs/forge-std --no-commit
+          forge fmt --check
+          forge test -vvv
+          forge build --sizes
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install slither-analyzer
+      - working-directory: packages/contracts
+        run: slither . --config-file ../../slither.config.json
+  supply-chain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: gitleaks/gitleaks-action@v2
+        env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+      - uses: anchore/scan-action@v6
+        with: { path: ".", fail-build: true, severity-cutoff: high }
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose build
+  polygon-fork:
+    if: ${{ secrets.POLYGON_RPC_URL != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+      - working-directory: packages/contracts
+        env: { POLYGON_RPC_URL: "${{ secrets.POLYGON_RPC_URL }}" }
+        run: forge test --match-path "test/fork/*" --fork-url "$POLYGON_RPC_URL"

@@ -1,0 +1,16 @@
+{
+  "name": "@eventclear/indexer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "run": "tsx src/index.ts run",
+    "backfill": "tsx src/index.ts backfill",
+    "reconcile": "tsx src/index.ts reconcile"
+  },
+  "dependencies": {
+    "pg": "^8.16.3",
+    "viem": "^2.33.2"
+  },
+  "devDependencies": { "tsx": "^4.20.3", "@types/node": "^22.17.0", "@types/pg": "^8.15.4" }
+}

@@ -1,0 +1,61 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: eventclear
+      POSTGRES_PASSWORD: eventclear
+      POSTGRES_DB: eventclear
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eventclear"]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+    ports: ["5432:5432"]
+    volumes:
+      - eventclear-postgres:/var/lib/postgresql/data
+      - ./infrastructure/docker/postgres/migrations:/docker-entrypoint-initdb.d:ro
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+  anvil:
+    image: ghcr.io/foundry-rs/foundry:latest
+    entrypoint: ["anvil", "--host", "0.0.0.0", "--chain-id", "31337", "--block-time", "1"]
+    ports: ["8545:8545"]
+  solver:
+    build:
+      context: ./apps/solver
+      dockerfile: ../../infrastructure/docker/python.Dockerfile
+    command: uvicorn eventclear_solver.main:app --host 0.0.0.0 --port 8001
+    ports: ["8001:8001"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 5s
+      timeout: 2s
+      retries: 20
+  api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+    env_file: .env
+    command: uvicorn eventclear_api.main:app --host 0.0.0.0 --port 8000
+    ports: ["8000:8000"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      solver: { condition: service_healthy }
+  web:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/web.Dockerfile
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+    ports: ["3000:3000"]
+    depends_on: [api]
+
+volumes:
+  eventclear-postgres:

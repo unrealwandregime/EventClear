@@ -1,0 +1,53 @@
+{
+  "name": "eventclear",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev": "vinext dev",
+    "build": "vinext build",
+    "start": "vinext start",
+    "test": "pnpm build && node --test tests/rendered-html.test.mjs",
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern packages/contracts/lib --ignore-pattern packages/contracts/out --ignore-pattern .tools",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "indexer:run": "pnpm --dir apps/indexer run",
+    "indexer:backfill": "pnpm --dir apps/indexer backfill",
+    "indexer:reconcile": "pnpm --dir apps/indexer reconcile"
+  },
+  "dependencies": {
+    "@polymarket/client": "latest",
+    "@tanstack/react-query": "^5.83.0",
+    "drizzle-orm": "0.45.2",
+    "lightweight-charts": "^5.0.8",
+    "next": "16.2.6",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "react-hook-form": "^7.61.1",
+    "viem": "^2.33.2",
+    "wagmi": "^2.16.1",
+    "zod": "^4.0.14"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "1.37.1",
+    "@tailwindcss/postcss": "4.2.1",
+    "@types/node": "22.19.19",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.2",
+    "@vitejs/plugin-rsc": "0.5.26",
+    "drizzle-kit": "0.31.10",
+    "eslint": "9.39.4",
+    "eslint-config-next": "16.2.6",
+    "react-server-dom-webpack": "19.2.6",
+    "tailwindcss": "4.2.1",
+    "typescript": "5.9.3",
+    "turbo": "^2.5.5",
+    "vinext": "0.0.50",
+    "vite": "8.0.13",
+    "wrangler": "4.92.0"
+  },
+  "type": "module"
+}
