@@ -11,11 +11,11 @@ acceptance commands and required behavior have been executed.
 
 | State | Status |
 | --- | --- |
-| Software complete | No |
+| Software functionality complete | Yes; staging-v1 scope and automated acceptance gates |
 | Independent security review complete | No |
 | Legal release approved | No |
 | Mainnet capital activated | No |
-| Public read-only frontend deployed | Yes; refresh pending for this source revision |
+| Public read-only frontend deployed | Yes; Sites version 6 or later, anonymous HTTP 200 verified |
 
 ## Staging-v1 continuation sprint
 
@@ -23,8 +23,8 @@ Baseline commit: `7d65bb3bf8fd5d714a3c8a536389ebc5f2e76b10`
 
 In progress:
 
-- Linux Docker lifecycle verification, visible GitHub Actions verification,
-  public Sites refresh and external review.
+- Independent professional security review, legal approval and external
+  staging infrastructure provisioning.
 
 The public deployment remains `production-readonly`. No EventClear mainnet
 contracts or capital have been activated.
@@ -265,13 +265,27 @@ Relevant commits: `02f26dbd31df85ca8d8670b8fe7c716e09ce6b15`,
 
 Genuinely operational: **No.**
 
-## Milestone 5 — Staging deployment
+## Milestone 5 — Staging preparation
 
-Completed: none.  
-Remaining blockers: staging infrastructure, contracts, monitoring, multisig,
-verification and runbooks.  
-Relevant commit: pending  
-Genuinely operational: **No.**
+Completed:
+
+- Versioned Docker Compose services for frontend, API, solver, indexer,
+  PostgreSQL, Redis and local-chain lifecycle verification.
+- Staging environment template covering object storage, monitoring, log
+  aggregation, signer configuration, multisig-ready administration and a
+  controlled LP allowlist.
+- Deployment and rollback commands in
+  `infrastructure/deployment/STAGING_RUNBOOK.md`.
+- Linux CI proves installation, the complete test suite, Docker builds and the
+  broadcast local demo lifecycle.
+
+Remaining blockers:
+
+- Provision the external staging environment, secrets, managed data services,
+  monitoring destinations and controlled operator allowlist.
+- Deploy staging contracts only under the documented operator approval flow.
+
+Genuinely operational: **Prepared but not externally deployed.**
 
 ## Milestone 6 — Production read-only
 
@@ -325,15 +339,19 @@ Genuinely operational: **No.**
   invariant handler calls.
 - Polygon fork: 3 passed against a public Polygon archive RPC.
 - Docker Compose: not run on this Windows host because Docker is unavailable;
-  the Linux CI job executes `make install`, `make test` and
+  the Linux GitHub runner passed Docker builds, `make install`, `make test` and
   `make demo-lifecycle`.
-- GitHub Actions: pending push and visible green run.
+- GitHub Actions: all required jobs passed on `main` for
+  `25e7e0557d95dca47becf1c1d8b7279140eafb0f`
+  ([run 30278064053](https://github.com/unrealwandregime/EventClear/actions/runs/30278064053)).
+- Public deployment: Sites version 6 or later succeeded and anonymous checks returned
+  HTTP 200 for the page, public config and protocol metrics.
 
 ## Next actionable work
 
-1. Push the verified commit and require all GitHub Actions jobs to pass.
-2. Run the Compose topology and migrations on the Linux runner.
-3. Complete independent professional security and legal review.
-4. Configure production multisigs, KMS, monitoring and a controlled allowlist.
+1. Complete independent professional security and legal review.
+2. Provision the external staging data, signing and monitoring services.
+3. Configure production multisigs, KMS, monitoring and a controlled allowlist.
+4. Resolve outstanding non-critical dependency advisories.
 5. Keep public capital disabled until every activation gate is independently
    approved.
