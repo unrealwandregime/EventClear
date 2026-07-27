@@ -75,6 +75,10 @@ class PostgresStore:
     def reset(self) -> None:
         raise RuntimeError("RESET_NOT_SUPPORTED_FOR_POSTGRES")
 
+    def healthcheck(self) -> bool:
+        with self._connection() as connection:
+            return connection.execute("SELECT 1").fetchone() == (1,)
+
     @staticmethod
     def _digest(value: str) -> str:
         return hashlib.sha256(value.encode()).hexdigest()
@@ -110,6 +114,25 @@ class PostgresStore:
                 VALUES (%s, %s, to_timestamp(%s))
                 """,
                 (self._digest(token), address, expires_at),
+            )
+
+    def get_session(self, token: str, now: float) -> dict | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT address, extract(epoch FROM expires_at)
+                FROM auth_sessions
+                WHERE token_hash = %s AND revoked_at IS NULL AND expires_at >= to_timestamp(%s)
+                """,
+                (self._digest(token), now),
+            ).fetchone()
+        return {"address": row[0], "expiresAt": float(row[1])} if row else None
+
+    def revoke_session(self, token: str) -> None:
+        with self._connection() as connection:
+            connection.execute(
+                "UPDATE auth_sessions SET revoked_at = now() WHERE token_hash = %s",
+                (self._digest(token),),
             )
 
     def _list(self, kind: str) -> list[dict]:
@@ -198,11 +221,26 @@ class PostgresStore:
     def get_quote(self, quote_id: str) -> dict | None:
         return self._get("quote", quote_id)
 
+    def save_analysis(self, analysis_id: str, value: dict) -> None:
+        self._put("analysis", analysis_id, value)
+
+    def get_analysis(self, analysis_id: str) -> dict | None:
+        return self._get("analysis", analysis_id)
+
     def list_bundles(self) -> list[dict]:
         return self._list("bundle")
 
     def get_bundle(self, bundle_id: str) -> dict | None:
         return self._get("bundle", bundle_id)
+
+    def list_claims(self) -> list[dict]:
+        return self._list("claim")
+
+    def get_claim(self, token_id: str) -> dict | None:
+        return self._get("claim", token_id)
+
+    def list_protocol_events(self) -> list[dict]:
+        return self._list("event")
 
     def append_audit_log(self, entry: dict) -> None:
         with self._connection() as connection:
@@ -232,5 +270,5 @@ def create_store(settings: Settings) -> MemoryStore | PostgresStore:
     if settings.store_backend != "postgres":
         raise RuntimeError("INVALID_STORE_BACKEND")
     store = PostgresStore(settings.database_url)
-    store.initialize(seed_demo_data=settings.mode != "polygon-mainnet")
+    store.initialize(seed_demo_data=settings.normalized_mode in {"local", "test"})
     return store

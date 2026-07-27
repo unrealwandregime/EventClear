@@ -141,4 +141,5 @@ def issue_quote(payload: dict, settings: Settings, nonce: int) -> dict:
         "signature": "0x" + signature.removeprefix("0x"),
         "solverResult": result.model_dump(mode="json"),
         "typedData": {"domain": domain, "types": types, "primaryType": "FinancingQuote", "message": message},
+        "requestPayload": payload,
     }

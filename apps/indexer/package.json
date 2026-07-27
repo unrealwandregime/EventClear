@@ -5,8 +5,10 @@
   "type": "module",
   "scripts": {
     "run": "tsx src/index.ts run",
+    "test": "tsx --test tests/*.test.ts",
     "backfill": "tsx src/index.ts backfill",
-    "reconcile": "tsx src/index.ts reconcile"
+    "reconcile": "tsx src/index.ts reconcile",
+    "status": "tsx src/index.ts status"
   },
   "dependencies": {
     "pg": "^8.16.3",

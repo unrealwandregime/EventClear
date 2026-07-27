@@ -1,7 +1,7 @@
 PNPM ?= pnpm
 PYTHON ?= python
 
-.PHONY: install dev test test-contracts test-solver test-integration fork-test lint typecheck seed deploy-local
+.PHONY: install dev stop reset seed test test-contracts test-solver test-api test-indexer test-e2e test-fork lint typecheck security deploy-local demo-lifecycle
 install:
 	$(PNPM) install
 	$(PYTHON) -m pip install -e apps/solver -e apps/api
@@ -10,8 +10,14 @@ install:
 dev:
 	docker compose up --build
 
-test: test-solver test-contracts
-	$(PYTHON) -m pytest apps/api/tests
+stop:
+	docker compose down
+
+reset:
+	docker compose down --volumes
+	docker compose up --build --detach
+
+test: test-solver test-contracts test-api test-indexer
 	$(PNPM) test
 
 test-contracts:
@@ -20,10 +26,16 @@ test-contracts:
 test-solver:
 	$(PYTHON) -m pytest apps/solver/tests
 
-test-integration:
+test-api:
 	$(PYTHON) -m pytest apps/api/tests
 
-fork-test:
+test-indexer:
+	$(PNPM) indexer:test
+
+test-e2e:
+	$(PNPM) test
+
+test-fork:
 	cd packages/contracts && forge test --match-path "test/fork/*" --fork-url "$(POLYGON_RPC_URL)"
 
 lint:
@@ -34,8 +46,16 @@ lint:
 typecheck:
 	$(PNPM) typecheck
 
+security:
+	cd packages/contracts && slither . --config-file ../../slither.config.json
+	$(PNPM) audit --audit-level high
+
 seed:
 	$(PYTHON) scripts/seed.py
 
 deploy-local:
 	cd packages/contracts && forge script script/DeployLocal.s.sol --rpc-url http://localhost:8545 --broadcast
+	$(PNPM) deployment:sync-local
+
+demo-lifecycle: seed
+	cd packages/contracts && forge script script/DemoLifecycle.s.sol:DemoLifecycle --rpc-url http://localhost:8545 --broadcast -vvv

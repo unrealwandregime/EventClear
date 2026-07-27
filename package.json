@@ -13,10 +13,13 @@
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern packages/contracts/lib --ignore-pattern packages/contracts/out --ignore-pattern .tools",
     "typecheck": "tsc --noEmit",
     "contracts:verify-manifest": "tsx scripts/verify-manifest.ts",
+    "deployment:sync-local": "tsx scripts/sync-local-deployment.ts",
     "db:generate": "drizzle-kit generate",
     "indexer:run": "pnpm --dir apps/indexer run",
     "indexer:backfill": "pnpm --dir apps/indexer backfill",
-    "indexer:reconcile": "pnpm --dir apps/indexer reconcile"
+    "indexer:reconcile": "pnpm --dir apps/indexer reconcile",
+    "indexer:status": "pnpm --dir apps/indexer status",
+    "indexer:test": "pnpm --dir apps/indexer test"
   },
   "dependencies": {
     "@polymarket/client": "0.2.0",

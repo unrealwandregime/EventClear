@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-27  
 Target release: EventClear v1 controlled, allowlisted production beta  
-Current source baseline: `ff1955831bb2be3cea69da8e62096c024656720a`
+Current source baseline: `a1fbe7d0b01bc6477d46b7d7fac67cbe0bbce335`
 
 This is the resumable source of truth. A milestone is operational only when its
 acceptance commands and required behavior have been executed.
@@ -94,7 +94,7 @@ Remaining blockers:
 - Add complete structured claim metadata.
 - Prove exact Make targets in Linux CI.
 
-Relevant commit: pending  
+Relevant commit: `a1fbe7d0b01bc6477d46b7d7fac67cbe0bbce335`
 Genuinely operational: **No.**
 
 ## Milestone 2 — Local full lifecycle
@@ -102,14 +102,28 @@ Genuinely operational: **No.**
 Completed:
 
 - PostgreSQL/Redis/Anvil/API/solver/web Docker Compose scaffold.
-- API local store and seed scaffold.
+- Durable SIWE sessions, quote nonces, analysis artifacts, audit records and
+  normalized protocol/indexer schema.
+- Reorg-aware multi-contract indexer with RPC failover health, checkpoints,
+  rollback marking, dead letters, backfill, reconciliation and status commands.
+- Executable ERC-4626 and claim-redemption transaction preparation.
+- API-backed web metrics, scanner, bundle ledger, registry and pool views; no
+  production fallback to presentation fixtures.
+- Automatic local deployment-address extraction and Compose propagation.
+- Broadcast `DemoLifecycle.s.sol` completed successfully on chain 31337 with 30
+  successful receipts: reviewed relationship, LP deposit, signed financing,
+  escrow, resolution, settlement, principal redemption and residual redemption.
+- Final broadcast state independently read from Anvil:
+  borrower pUSD `194525000`, pool realized yield `4500000`, outstanding cost
+  basis `0`.
 
 Remaining blockers:
 
-- Automatic deployment and address propagation.
-- Indexer service, deterministic seed lifecycle and transaction orchestration.
-- API-backed web flow and browser E2E.
-- `make demo-lifecycle` and `make test-e2e`.
+- Docker Desktop is unavailable on this host, so the complete Compose topology
+  and PostgreSQL migrations still require Linux CI execution.
+- Browser wallet E2E and indexer reorg integration tests still need automation.
+- The checked `make demo-lifecycle` target is implemented, but GNU Make is not
+  installed on this host; its underlying commands passed.
 
 Relevant commit: pending  
 Genuinely operational: **No.**
@@ -118,12 +132,21 @@ Genuinely operational: **No.**
 
 Completed: official Polygon dependency manifest and SDK dependency.
 
+Additional completed work:
+
+- Validated Gamma market and Data API position clients with bounded retries,
+  timeouts, schema filtering and exact decimal-to-atomic conversion.
+- Polygon RPC failover wallet-code detection and explicit EOA versus unverified
+  contract-wallet capabilities.
+- Non-local API paths fail closed when reviewed/indexed state is unavailable;
+  seeded data is restricted to local/test modes.
+
 Remaining blockers:
 
-- Gamma, Data and CLOB clients with validation/cache/retry.
-- Wallet-type and capability detection.
-- Real position reads and relationship review workflow.
-- Removal of non-local fake data.
+- CLOB orderbook and price-history ingestion.
+- Persistent cache/freshness enforcement and real reviewed relationship
+  population.
+- End-to-end live API verification against production infrastructure.
 
 Relevant commit: pending  
 Genuinely operational: **No.**
@@ -189,7 +212,8 @@ Genuinely operational: **No.**
 
 ## Next actionable work
 
-1. Implement the exact environment manifest layout and startup validation.
-2. Complete the canonical threshold model and solver mandatory cases.
-3. Add `RiskPolicy.sol`, ERC-4626 accounting and invariant tests.
-4. Re-run Milestone 1 acceptance gates and update this file.
+1. Run the Compose topology and migrations on a Docker-capable host.
+2. Add browser wallet E2E and indexer reorg integration coverage.
+3. Complete CLOB/history ingestion and immutable relationship-repository solver
+   loading.
+4. Pin and execute the Polygon fork lifecycle with real position fixtures.

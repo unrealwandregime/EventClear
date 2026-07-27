@@ -52,6 +52,13 @@ class Settings:
     advance_ratio_bps: int = int(os.getenv("ADVANCE_RATIO_BPS", "9500"))
     origination_fee_bps: int = int(os.getenv("ORIGINATION_FEE_BPS", "50"))
     contract_manifest_path: str = os.getenv("CONTRACT_MANIFEST_PATH", "")
+    gamma_api_url: str = os.getenv("POLYMARKET_GAMMA_URL", "https://gamma-api.polymarket.com")
+    data_api_url: str = os.getenv("POLYMARKET_DATA_URL", "https://data-api.polymarket.com")
+    polygon_rpc_urls_raw: str = os.getenv("POLYGON_RPC_URLS", "")
+
+    @property
+    def polygon_rpc_urls(self) -> tuple[str, ...]:
+        return tuple(value.strip() for value in self.polygon_rpc_urls_raw.split(",") if value.strip())
 
     @property
     def normalized_mode(self) -> str:
@@ -59,7 +66,7 @@ class Settings:
 
     @property
     def execution_enabled(self) -> bool:
-        return self.normalized_mode == "production-controlled"
+        return self.normalized_mode != "production-readonly"
 
     def _validate_manifest(self) -> None:
         mode = self.normalized_mode
@@ -141,3 +148,6 @@ class Settings:
                 raise RuntimeError(f"MAINNET_SAFETY_GATE_FAILED:{','.join(missing)}")
         if self.normalized_mode == "production-readonly" and self.chain_id != 137:
             raise RuntimeError("PRODUCTION_READONLY_CHAIN_ID_MUST_BE_137")
+        if self.normalized_mode in {"polygon-fork", "production-readonly", "production-controlled"}:
+            if len(self.polygon_rpc_urls) < 2:
+                raise RuntimeError("RPC_FAILOVER_CONFIGURED")

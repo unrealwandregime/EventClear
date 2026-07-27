@@ -144,6 +144,33 @@ class ApiTests(unittest.TestCase):
         self.assertTrue(body["signature"].startswith("0x"))
         self.assertEqual(len(body["quote"]["bundleHash"]), 66)
 
+    def test_transaction_preparation_returns_executable_calldata(self):
+        receiver = "0x0000000000000000000000000000000000000001"
+        deposit = self.client.post(
+            "/api/v1/pool/prepare-deposit",
+            json={"amountAtomic": "1000000", "receiver": receiver},
+        )
+        self.assertEqual(deposit.status_code, 200, deposit.text)
+        self.assertTrue(deposit.json()["transactionRequest"]["data"].startswith("0x6e553f65"))
+        self.assertFalse(deposit.json().get("requiresWalletEncoding", False))
+
+        redemption = self.client.post(
+            "/api/v1/claims/principal-418/prepare-redemption",
+            json={"amountAtomic": "1000000"},
+        )
+        self.assertEqual(redemption.status_code, 200, redemption.text)
+        self.assertNotEqual(redemption.json()["transactionRequest"]["data"], None)
+        self.assertFalse(redemption.json()["requiresWalletEncoding"])
+
+    def test_public_config_exposes_only_execution_addresses_and_mode(self):
+        response = self.client.get("/api/v1/config/public")
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["chainId"], 31337)
+        self.assertTrue(body["mainnetExecution"])
+        self.assertIn("fundingPoolAddress", body)
+        self.assertNotIn("adminApiToken", body)
+
 
 if __name__ == "__main__":
     unittest.main()

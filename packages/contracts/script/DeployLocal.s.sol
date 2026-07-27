@@ -15,7 +15,10 @@ import {MockResolutionOracle} from "../src/mocks/MockResolutionOracle.sol";
 
 contract DeployLocal is Script {
     function run() external {
-        uint256 key = vm.envOr("LOCAL_DEPLOYER_PRIVATE_KEY", uint256(0xA11CE));
+        // Anvil account 0. This script is local-only and must never be used for a public network.
+        uint256 key = vm.envOr(
+            "LOCAL_DEPLOYER_PRIVATE_KEY", uint256(0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80)
+        );
         address deployer = vm.addr(key);
         address signer = vm.envOr("RISK_SIGNER_ADDRESS", deployer);
         vm.startBroadcast(key);

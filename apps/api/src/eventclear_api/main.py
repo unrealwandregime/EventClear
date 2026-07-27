@@ -17,8 +17,10 @@ from eth_account import Account
 from eth_account.messages import encode_defunct
 
 from eventclear_solver.engine import solve
-from eventclear_solver.models import SolverRequest
+from eventclear_solver.models import ProofArtifact, SolverRequest
 
+from .calldata import deposit, redeem_claim, withdraw
+from .polymarket import PolymarketReadGateway
 from .quote import issue_quote
 from .repository import create_store
 from .seed import POSITIONS
@@ -28,6 +30,11 @@ settings = Settings()
 settings.validate()
 store = create_store(settings)
 redis_client = redis_from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None
+polymarket = PolymarketReadGateway(
+    settings.gamma_api_url,
+    settings.data_api_url,
+    settings.polygon_rpc_urls,
+)
 REQUESTS = Counter("eventclear_api_requests_total", "API requests", ["method", "path", "status"])
 LATENCY = Histogram("eventclear_api_latency_seconds", "API request latency", ["path"])
 rate_windows: dict[str, deque[float]] = defaultdict(deque)
@@ -86,9 +93,34 @@ def admin(x_admin_token: str | None = Header(default=None)) -> str:
     return "admin"
 
 
+def authenticated_session(authorization: str | None = Header(default=None)) -> dict:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(401, detail={"code": "SESSION_REQUIRED"})
+    session = store.get_session(authorization.removeprefix("Bearer "), time.time())
+    if session is None:
+        raise HTTPException(401, detail={"code": "INVALID_SESSION"})
+    return session
+
+
 @app.get("/api/v1/health")
 def health():
     return {"status": "ok", "mode": settings.normalized_mode, "database": "configured", "chainId": settings.chain_id}
+
+
+@app.get("/api/v1/readiness")
+async def readiness():
+    database_ready = store.healthcheck()
+    redis_ready = True
+    if redis_client is not None:
+        try:
+            redis_ready = bool(await redis_client.ping())
+        except RedisError:
+            redis_ready = False
+    ready = database_ready and redis_ready
+    return JSONResponse(
+        status_code=200 if ready else 503,
+        content={"status": "ready" if ready else "not-ready", "database": database_ready, "redis": redis_ready},
+    )
 
 
 @app.get("/api/v1/config/public")
@@ -97,6 +129,8 @@ def public_config():
         "mode": settings.normalized_mode,
         "chainId": settings.chain_id,
         "vaultAddress": settings.vault_address,
+        "fundingPoolAddress": settings.funding_pool_address,
+        "collateralTokenAddress": settings.collateral_token_address,
         "mainnetExecution": settings.execution_enabled,
         "dataSource": "seeded" if settings.normalized_mode in {"local", "test"} else "live",
     }
@@ -153,33 +187,122 @@ def siwe_verify(payload: dict):
     return {"sessionToken": token, "address": recovered, "expiresIn": 3600}
 
 
+@app.post("/api/v1/auth/logout")
+def logout(authorization: str | None = Header(default=None)):
+    if authorization and authorization.startswith("Bearer "):
+        store.revoke_session(authorization.removeprefix("Bearer "))
+    return {"status": "logged-out"}
+
+
+@app.get("/api/v1/auth/session")
+def session(current: dict = Depends(authenticated_session)):
+    return current
+
+
 @app.get("/api/v1/markets")
-def markets():
-    return {"data": store.list_markets(), "stale": False}
+async def markets():
+    if settings.normalized_mode in {"local", "test"}:
+        return {"data": store.list_markets(), "stale": False, "source": "seeded-local"}
+    try:
+        return {"data": await polymarket.markets(), "stale": False, "source": "gamma-live"}
+    except RuntimeError as exc:
+        raise HTTPException(503, detail={"code": str(exc)}) from exc
 
 
 @app.get("/api/v1/markets/{condition_id}")
-def market(condition_id: str):
-    item = store.get_market(condition_id)
+async def market(condition_id: str):
+    if settings.normalized_mode in {"local", "test"}:
+        item = store.get_market(condition_id)
+    else:
+        try:
+            item = await polymarket.market(condition_id)
+        except RuntimeError as exc:
+            raise HTTPException(503, detail={"code": str(exc)}) from exc
     if not item:
         raise HTTPException(404, detail={"code": "MARKET_NOT_FOUND"})
     return item
 
 
 @app.get("/api/v1/markets/{condition_id}/rules")
-def market_rules(condition_id: str):
-    market(condition_id)
-    return {"conditionId": condition_id, "ruleHash": "0x" + "cd" * 32, "source": "seed://reviewed-rules", "observationSemanticsComplete": True}
+async def market_rules(condition_id: str):
+    await market(condition_id)
+    if settings.normalized_mode not in {"local", "test"}:
+        relationship_matches = [
+            item
+            for item in store.list_relationships()
+            if condition_id in item.get("marketConditionIds", []) and item.get("status") == "APPROVED"
+        ]
+        if not relationship_matches:
+            raise HTTPException(404, detail={"code": "REVIEWED_RULES_NOT_FOUND"})
+        return {
+            "conditionId": condition_id,
+            "ruleHash": relationship_matches[0]["resolutionRulesHash"],
+            "source": "reviewed-relationship-repository",
+            "observationSemanticsComplete": True,
+        }
+    return {
+        "conditionId": condition_id,
+        "ruleHash": "0x" + "cd" * 32,
+        "source": "seeded-local-reviewed-rules",
+        "observationSemanticsComplete": True,
+    }
+
+
+@app.get("/api/v1/markets/{condition_id}/snapshots")
+async def market_snapshots(condition_id: str):
+    await market(condition_id)
+    return {"data": [], "conditionId": condition_id, "source": "indexed"}
+
+
+@app.get("/api/v1/wallets/{address}")
+async def wallet(address: str):
+    if settings.normalized_mode in {"local", "test"}:
+        return {
+            "signerAddress": address,
+            "positionWallet": address,
+            "walletType": "EOA",
+            "executionSupported": True,
+            "source": "seeded-local",
+        }
+    try:
+        return await polymarket.wallet_type(address)
+    except RuntimeError as exc:
+        raise HTTPException(503, detail={"code": str(exc)}) from exc
 
 
 @app.get("/api/v1/wallets/{address}/positions")
-def positions(address: str):
-    return {"signerAddress": address, "accountWallet": address, "walletType": "EOA", "positionHoldingAddress": address, "positions": POSITIONS}
+async def positions(address: str):
+    if settings.normalized_mode in {"local", "test"}:
+        return {"signerAddress": address, "positionWallet": address, "walletType": "EOA", "positions": POSITIONS, "source": "seeded-local"}
+    try:
+        capability = await polymarket.wallet_type(address)
+        return {**capability, "positions": await polymarket.positions(address), "source": "data-api-live"}
+    except RuntimeError as exc:
+        raise HTTPException(503, detail={"code": str(exc)}) from exc
+
+
+@app.get("/api/v1/wallets/{address}/capabilities")
+async def wallet_capabilities(address: str):
+    return await wallet(address)
 
 
 @app.get("/api/v1/wallets/{address}/eligible-bundles")
 def eligible(address: str):
+    if settings.normalized_mode not in {"local", "test"}:
+        return {
+            "accountWallet": address,
+            "candidates": [],
+            "reason": "REVIEWED_RELATIONSHIP_MATCH_REQUIRED",
+            "source": "live",
+        }
     return {"accountWallet": address, "candidates": [{"relationshipId": "btc-close-ladder", "status": "ELIGIBLE", "guaranteedFloorAtomic": "100000000", "estimatedAdvanceAtomic": "93500000"}]}
+
+
+@app.get("/api/v1/wallets/{address}/opportunities")
+def opportunities(address: str):
+    if settings.normalized_mode not in {"local", "test"}:
+        return {"positionWallet": address, "candidates": [], "reason": "REVIEWED_RELATIONSHIP_MATCH_REQUIRED"}
+    return eligible(address)
 
 
 @app.post("/api/v1/bundles/analyze")
@@ -188,6 +311,42 @@ def analyze(request: SolverRequest):
     if not result.isSatisfiable:
         raise HTTPException(422, detail={"code": "SOLVER_REJECTED", "reasons": result.rejectionReasons})
     return result
+
+
+@app.post("/api/v1/analysis")
+def create_analysis(request: SolverRequest):
+    result = solve(request)
+    analysis_id = str(uuid.uuid4())
+    artifact = ProofArtifact(request=request, result=result).model_dump(mode="json")
+    record = {"id": analysis_id, "solverResult": result.model_dump(mode="json"), "artifact": artifact}
+    store.save_analysis(analysis_id, record)
+    return record
+
+
+@app.get("/api/v1/analysis/{analysis_id}")
+def get_analysis(analysis_id: str):
+    record = store.get_analysis(analysis_id)
+    if record is None:
+        raise HTTPException(404, detail={"code": "ANALYSIS_NOT_FOUND"})
+    return {key: value for key, value in record.items() if key != "artifact"}
+
+
+@app.get("/api/v1/analysis/{analysis_id}/artifact")
+def get_analysis_artifact(analysis_id: str):
+    record = store.get_analysis(analysis_id)
+    if record is None:
+        raise HTTPException(404, detail={"code": "ANALYSIS_NOT_FOUND"})
+    return record["artifact"]
+
+
+@app.post("/api/v1/analysis/{analysis_id}/verify")
+def verify_analysis(analysis_id: str):
+    record = store.get_analysis(analysis_id)
+    if record is None:
+        raise HTTPException(404, detail={"code": "ANALYSIS_NOT_FOUND"})
+    artifact = ProofArtifact.model_validate(record["artifact"])
+    reproduced = solve(artifact.request, timestamp=artifact.result.generatedAt)
+    return {"analysisId": analysis_id, "valid": reproduced == artifact.result, "artifactHash": artifact.result.artifactHash}
 
 
 @app.post("/api/v1/quotes")
@@ -215,6 +374,18 @@ def get_quote(quote_id: str):
     return result
 
 
+@app.post("/api/v1/quotes/{quote_id}/refresh")
+def refresh_quote(quote_id: str):
+    previous = store.get_quote(quote_id)
+    if previous is None:
+        raise HTTPException(404, detail={"code": "QUOTE_NOT_FOUND"})
+    if settings.normalized_mode == "production-readonly":
+        raise HTTPException(403, detail={"code": "PRODUCTION_READONLY"})
+    refreshed = issue_quote(previous["requestPayload"], settings, store.allocate_quote_nonce())
+    store.save_quote(refreshed["id"], refreshed)
+    return refreshed
+
+
 @app.get("/api/v1/bundles")
 def bundles():
     return {"data": store.list_bundles()}
@@ -228,14 +399,56 @@ def bundle(bundle_id: str):
     return item
 
 
+@app.get("/api/v1/bundles/{bundle_id}/transactions")
+def bundle_transactions(bundle_id: str):
+    bundle(bundle_id)
+    return {"bundleId": bundle_id, "data": []}
+
+
 @app.post("/api/v1/bundles/{bundle_id}/prepare-settlement")
 def prepare_settlement(bundle_id: str):
+    bundle(bundle_id)
+    if settings.normalized_mode not in {"local", "test"}:
+        raise HTTPException(503, detail={"code": "INDEXED_RESOLUTION_STATE_UNAVAILABLE"})
     return {"bundleId": bundle_id, "ready": False, "unresolvedConditions": ["btc-100", "btc-150"]}
 
 
 @app.post("/api/v1/bundles/{bundle_id}/settle")
 def settle(bundle_id: str):
+    bundle(bundle_id)
+    if settings.normalized_mode not in {"local", "test"}:
+        raise HTTPException(503, detail={"code": "INDEXED_RESOLUTION_STATE_UNAVAILABLE"})
     return {"bundleId": bundle_id, "transactionRequest": None, "reason": "CONDITIONS_UNRESOLVED"}
+
+
+@app.get("/api/v1/claims")
+def claims():
+    return {"data": store.list_claims()}
+
+
+@app.get("/api/v1/claims/{token_id}")
+def claim(token_id: str):
+    item = store.get_claim(token_id)
+    if item is None:
+        raise HTTPException(404, detail={"code": "CLAIM_NOT_FOUND"})
+    return item
+
+
+@app.post("/api/v1/claims/{token_id}/prepare-redemption")
+def prepare_claim_redemption(token_id: str, payload: dict):
+    item = claim(token_id)
+    try:
+        amount = int(payload["amountAtomic"])
+        bundle_id = int(str(item["bundleId"]).removeprefix("EC-"))
+        data = redeem_claim(item["claimType"], bundle_id, amount)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(422, detail={"code": "INVALID_REDEMPTION_REQUEST"}) from exc
+    return {
+        "claim": item,
+        "amountAtomic": str(amount),
+        "transactionRequest": {"to": settings.vault_address, "data": data, "value": "0x0"},
+        "requiresWalletEncoding": False,
+    }
 
 
 @app.get("/api/v1/relationships")
@@ -266,11 +479,17 @@ def create_relationship(payload: dict, actor: str = Depends(admin)):
 
 @app.post("/api/v1/admin/relationships/{relationship_id}/{action}")
 def relationship_action(relationship_id: str, action: str, actor: str = Depends(admin)):
-    if action not in {"review", "approve", "suspend"}:
+    if action not in {"extract", "review", "approve", "suspend", "retire"}:
         raise HTTPException(404, detail={"code": "ACTION_NOT_FOUND"})
     item = store.set_relationship_status(
         relationship_id,
-        {"review": "REVIEW", "approve": "APPROVED", "suspend": "SUSPENDED"}[action],
+        {
+            "extract": "EXTRACTED",
+            "review": "REVIEW_REQUIRED",
+            "approve": "APPROVED",
+            "suspend": "SUSPENDED",
+            "retire": "RETIRED",
+        }[action],
     )
     if item is None:
         raise HTTPException(404, detail={"code": "RELATIONSHIP_NOT_FOUND"})
@@ -280,17 +499,87 @@ def relationship_action(relationship_id: str, action: str, actor: str = Depends(
 
 @app.get("/api/v1/pool")
 def pool():
-    return {"totalAssetsAtomic": "780000000000", "liquidAtomic": "298000000000", "outstandingAdvanceCostBasisAtomic": "482000000000", "utilizationBps": 6179, "realizedYieldAtomic": "9270000000", "depositCapAtomic": "1000000000000"}
+    if settings.normalized_mode not in {"local", "test"}:
+        raise HTTPException(503, detail={"code": "INDEXED_POOL_STATE_UNAVAILABLE"})
+    return {"totalAssetsAtomic": "1000000000", "liquidAtomic": "905000000", "outstandingAdvanceCostBasisAtomic": "95000000", "utilizationBps": 950, "realizedYieldAtomic": "0", "realizedLossAtomic": "0", "depositCapAtomic": "1000000000000", "source": "seeded-local"}
 
 
 @app.get("/api/v1/pool/history")
 def pool_history():
-    return {"data": [{"date": "2026-07-27", "totalAssetsAtomic": "780000000000", "utilizationBps": 6179}]}
+    if settings.normalized_mode not in {"local", "test"}:
+        raise HTTPException(503, detail={"code": "INDEXED_POOL_STATE_UNAVAILABLE"})
+    return {"data": [{"date": "2026-07-27", "totalAssetsAtomic": "1000000000", "utilizationBps": 950}], "source": "seeded-local"}
+
+
+@app.get("/api/v1/pool/account/{address}")
+def pool_account(address: str):
+    if settings.normalized_mode not in {"local", "test"}:
+        raise HTTPException(503, detail={"code": "INDEXED_POOL_ACCOUNT_UNAVAILABLE"})
+    return {"address": address, "sharesAtomic": "0", "availableWithdrawalAtomic": "0", "allowlisted": False}
+
+
+@app.post("/api/v1/pool/prepare-deposit")
+def prepare_pool_deposit(payload: dict):
+    try:
+        amount = int(payload["amountAtomic"])
+        receiver = payload["receiver"]
+        data = deposit(amount, receiver)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(422, detail={"code": "INVALID_DEPOSIT_REQUEST"}) from exc
+    return {"amountAtomic": str(amount), "transactionRequest": {"to": settings.funding_pool_address, "data": data, "value": "0x0"}, "allowlistRequired": True}
+
+
+@app.post("/api/v1/pool/prepare-withdrawal")
+def prepare_pool_withdrawal(payload: dict):
+    try:
+        amount = int(payload["amountAtomic"])
+        receiver = payload["receiver"]
+        owner = payload["owner"]
+        data = withdraw(amount, receiver, owner)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(422, detail={"code": "INVALID_WITHDRAWAL_REQUEST"}) from exc
+    return {"amountAtomic": str(amount), "transactionRequest": {"to": settings.funding_pool_address, "data": data, "value": "0x0"}}
+
+
+@app.get("/api/v1/admin/risk")
+def get_risk(_: str = Depends(admin)):
+    return store.risk_policy if hasattr(store, "risk_policy") else {"source": "database"}
+
+
+@app.post("/api/v1/admin/risk/{action}")
+def risk_action(action: str, payload: dict, actor: str = Depends(admin)):
+    if action not in {"propose", "execute"}:
+        raise HTTPException(404, detail={"code": "ACTION_NOT_FOUND"})
+    store.append_audit_log({"actor": actor, "action": f"RISK_{action.upper()}", "target": "risk-policy", "metadata": payload})
+    return {"status": action.upper(), "proposal": payload}
 
 
 @app.get("/api/v1/protocol/metrics")
 def protocol_metrics():
-    return {"activeBundles": 418, "guaranteedCollateralAtomic": "482640000000", "capitalUnlockedAtomic": "451268400000", "activeRelationships": 24}
+    if settings.normalized_mode not in {"local", "test"}:
+        bundles = store.list_bundles()
+        relationships = store.list_relationships()
+        if not bundles and not relationships:
+            return {"available": False, "source": "indexed", "reason": "NO_VERIFIED_INDEXED_STATE"}
+    bundles = store.list_bundles()
+    relationships = store.list_relationships()
+    active = [item for item in bundles if item["status"] == "ACTIVE"]
+    return {
+        "activeBundles": len(active),
+        "settledBundles": sum(item["status"] == "SETTLED" for item in bundles),
+        "shortfalls": sum(item["status"] == "SHORTFALL" for item in bundles),
+        "guaranteedFloorEscrowedAtomic": str(sum(int(item["principalAmountAtomic"]) for item in active)),
+        "grossAdvancesAtomic": str(sum(int(item.get("grossAdvanceAtomic", "0")) for item in bundles)),
+        "netAdvancesAtomic": str(sum(int(item.get("netAdvanceAtomic", "0")) for item in bundles)),
+        "approvedRelationships": sum(item["status"] == "APPROVED" for item in relationships),
+        "source": "seeded-local" if settings.normalized_mode in {"local", "test"} else "indexed",
+        "available": True,
+    }
+
+
+@app.get("/api/v1/protocol/events")
+def protocol_events():
+    return {"data": store.list_protocol_events()}
 
 
 @app.get("/metrics")
