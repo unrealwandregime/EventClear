@@ -153,4 +153,74 @@ contract EventClearLifecycleTest is Test {
         assertEq(bundle.principalAllocation, 75 * UNIT);
         assertEq(bundle.residualAllocation, 0);
     }
+
+    function testExpiredQuoteAndWrongDomainAreRejected() public {
+        (bytes32[] memory conditions, uint256[] memory ids, uint256[] memory amounts) = legs();
+        bytes32 bundleHash = vault.hashLegs(conditions, ids, amounts);
+
+        EventClearVault.FinancingQuote memory expired = quote(bundleHash, 10, block.timestamp - 1);
+        bytes memory expiredSignature = signature(expired);
+        vm.expectRevert(EventClearVault.QuoteExpired.selector);
+        vm.prank(borrower);
+        vault.openBundle(expired, expiredSignature, conditions, ids, amounts);
+
+        EventClearVault.FinancingQuote memory wrongChain = quote(bundleHash, 11, block.timestamp + 5 minutes);
+        wrongChain.chainId = block.chainid + 1;
+        bytes memory wrongChainSignature = signature(wrongChain);
+        vm.expectRevert(EventClearVault.InvalidQuote.selector);
+        vm.prank(borrower);
+        vault.openBundle(wrongChain, wrongChainSignature, conditions, ids, amounts);
+
+        EventClearVault.FinancingQuote memory wrongVault = quote(bundleHash, 12, block.timestamp + 5 minutes);
+        wrongVault.vault = address(0xBEEF);
+        bytes memory wrongVaultSignature = signature(wrongVault);
+        vm.expectRevert(EventClearVault.InvalidQuote.selector);
+        vm.prank(borrower);
+        vault.openBundle(wrongVault, wrongVaultSignature, conditions, ids, amounts);
+    }
+
+    function testPauseAndUnresolvedSettlementGates() public {
+        (bytes32[] memory conditions, uint256[] memory ids, uint256[] memory amounts) = legs();
+        bytes32 bundleHash = vault.hashLegs(conditions, ids, amounts);
+        EventClearVault.FinancingQuote memory q = quote(bundleHash, 13, block.timestamp + 5 minutes);
+        bytes memory sig = signature(q);
+
+        vault.setOriginationsPaused(true);
+        vm.expectRevert(EventClearVault.OriginationPaused.selector);
+        vm.prank(borrower);
+        vault.openBundle(q, sig, conditions, ids, amounts);
+
+        vault.setOriginationsPaused(false);
+        vm.prank(borrower);
+        uint256 bundleId = vault.openBundle(q, sig, conditions, ids, amounts);
+        vm.expectRevert(EventClearVault.ConditionsUnresolved.selector);
+        vault.settle(bundleId);
+    }
+
+    function testFuzzSettlementAccountingConservesProceeds(uint32 firstYesPayout, uint32 secondNoPayout) public {
+        uint256 first = bound(uint256(firstYesPayout), 0, UNIT);
+        uint256 second = bound(uint256(secondNoPayout), 0, UNIT);
+        (bytes32[] memory conditions, uint256[] memory ids, uint256[] memory amounts) = legs();
+        EventClearVault.FinancingQuote memory q =
+            quote(vault.hashLegs(conditions, ids, amounts), 14, block.timestamp + 5 minutes);
+        bytes memory sig = signature(q);
+        vm.prank(borrower);
+        uint256 bundleId = vault.openBundle(q, sig, conditions, ids, amounts);
+
+        ctf.resolve(conditions[0], first, UNIT - first);
+        ctf.resolve(conditions[1], UNIT - second, second);
+        vault.settle(bundleId);
+
+        EventClearVault.Bundle memory bundle = vault.getBundle(bundleId);
+        uint256 expectedProceeds = (first + second) * 100;
+        assertEq(bundle.settlementProceeds, expectedProceeds);
+        assertEq(bundle.principalAllocation + bundle.residualAllocation, expectedProceeds);
+        assertLe(bundle.principalAllocation, bundle.principalAmount);
+        assertLe(bundle.residualAllocation, bundle.principalAmount);
+        if (expectedProceeds < bundle.principalAmount) {
+            assertEq(uint256(bundle.status), uint256(EventClearVault.BundleStatus.SHORTFALL));
+        } else {
+            assertEq(uint256(bundle.status), uint256(EventClearVault.BundleStatus.SETTLED));
+        }
+    }
 }

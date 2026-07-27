@@ -114,6 +114,13 @@ A bundle below principal becomes `SHORTFALL`; all proceeds go to principal and t
 
 The web can deploy to Vercel or Sites; API, solver, and indexer run as separate containers on Railway, Fly.io, ECS, or Kubernetes with managed PostgreSQL and Redis. Use separate secrets and databases for `development`, `test`, `staging`, `production-readonly`, and `production-mainnet`.
 
+Production API processes must set `EVENTCLEAR_STORE=postgres`. Authentication
+nonces and session tokens are stored only as SHA-256 digests, quote nonces are
+allocated atomically, and API read models survive process restarts. Apply
+`infrastructure/docker/postgres/migrations/001_initial.sql` followed by
+`002_operational_state.sql` before starting the API against an existing
+database. Demo market data is never seeded in `polygon-mainnet` mode.
+
 Production-mainnet requires:
 
 ```text
@@ -123,6 +130,7 @@ RISK_SIGNER_CONFIGURED=true
 ADMIN_MULTISIG_CONFIGURED=true
 RPC_FAILOVER_CONFIGURED=true
 EVENTCLEAR_MODE=polygon-mainnet
+EVENTCLEAR_STORE=postgres
 CHAIN_ID=137
 ```
 

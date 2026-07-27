@@ -4,6 +4,7 @@ import unittest
 os.environ["EVENTCLEAR_MODE"] = "local"
 from fastapi.testclient import TestClient
 from eventclear_api.main import app, store
+from eventclear_api.settings import Settings
 
 
 class ApiTests(unittest.TestCase):
@@ -19,6 +20,36 @@ class ApiTests(unittest.TestCase):
     def test_admin_requires_authentication(self):
         response = self.client.post("/api/v1/admin/relationships", json={"id": "test"})
         self.assertEqual(response.status_code, 403)
+
+    def test_relationship_creation_is_durable_through_store_interface(self):
+        headers = {"x-admin-token": "local-admin"}
+        payload = {"id": "new-ladder", "canonicalDefinitionHash": "0x" + "ef" * 32}
+        created = self.client.post("/api/v1/admin/relationships", json=payload, headers=headers)
+        self.assertEqual(created.status_code, 200, created.text)
+        fetched = self.client.get("/api/v1/relationships/new-ladder")
+        self.assertEqual(fetched.status_code, 200)
+        self.assertEqual(fetched.json()["status"], "DRAFT")
+        duplicate = self.client.post("/api/v1/admin/relationships", json=payload, headers=headers)
+        self.assertEqual(duplicate.status_code, 409)
+
+    def test_siwe_nonce_is_single_use_even_after_failed_signature(self):
+        nonce = self.client.post("/api/v1/auth/siwe/nonce").json()["nonce"]
+        payload = {
+            "nonce": nonce,
+            "message": f"eventclear.local wants you to sign in\nNonce: {nonce}",
+            "signature": "0xdeadbeef",
+        }
+        first = self.client.post("/api/v1/auth/siwe/verify", json=payload)
+        second = self.client.post("/api/v1/auth/siwe/verify", json=payload)
+        self.assertEqual(first.status_code, 401)
+        self.assertEqual(first.json()["detail"]["code"], "INVALID_SIWE_SIGNATURE")
+        self.assertEqual(second.status_code, 401)
+        self.assertEqual(second.json()["detail"]["code"], "INVALID_SIWE_NONCE")
+
+    def test_mainnet_rejects_memory_store(self):
+        production = Settings(mode="polygon-mainnet", chain_id=137, store_backend="memory")
+        with self.assertRaisesRegex(RuntimeError, "EVENTCLEAR_STORE=postgres"):
+            production.validate()
 
     def test_unknown_market_structured_error(self):
         response = self.client.get("/api/v1/markets/missing")

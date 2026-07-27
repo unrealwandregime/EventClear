@@ -16,11 +16,13 @@ from eventclear_solver.engine import solve
 from eventclear_solver.models import SolverRequest
 
 from .quote import issue_quote
-from .seed import POSITIONS, MemoryStore
+from .repository import create_store
+from .seed import POSITIONS
 from .settings import Settings
 
 settings = Settings()
-store = MemoryStore()
+settings.validate()
+store = create_store(settings)
 REQUESTS = Counter("eventclear_api_requests_total", "API requests", ["method", "path", "status"])
 LATENCY = Histogram("eventclear_api_latency_seconds", "API request latency", ["path"])
 rate_windows: dict[str, deque[float]] = defaultdict(deque)
@@ -76,7 +78,7 @@ def public_config():
 @app.post("/api/v1/auth/siwe/nonce")
 def siwe_nonce():
     nonce = secrets.token_urlsafe(18)
-    store.siwe_nonces[nonce] = time.time() + 300
+    store.create_siwe_nonce(nonce, time.time() + 300)
     return {"nonce": nonce, "expiresIn": 300}
 
 
@@ -85,25 +87,25 @@ def siwe_verify(payload: dict):
     message = payload.get("message", "")
     signature = payload.get("signature", "")
     nonce = payload.get("nonce", "")
-    if store.siwe_nonces.pop(nonce, 0) < time.time() or f"Nonce: {nonce}" not in message:
+    if not store.consume_siwe_nonce(nonce, time.time()) or f"Nonce: {nonce}" not in message:
         raise HTTPException(401, detail={"code": "INVALID_SIWE_NONCE"})
     try:
         recovered = Account.recover_message(encode_defunct(text=message), signature=signature)
     except Exception as exc:
         raise HTTPException(401, detail={"code": "INVALID_SIWE_SIGNATURE"}) from exc
     token = secrets.token_urlsafe(32)
-    store.sessions[token] = recovered
+    store.create_session(token, recovered, time.time() + 3600)
     return {"sessionToken": token, "address": recovered, "expiresIn": 3600}
 
 
 @app.get("/api/v1/markets")
 def markets():
-    return {"data": store.markets, "stale": False}
+    return {"data": store.list_markets(), "stale": False}
 
 
 @app.get("/api/v1/markets/{condition_id}")
 def market(condition_id: str):
-    item = next((item for item in store.markets if item["conditionId"] == condition_id), None)
+    item = store.get_market(condition_id)
     if not item:
         raise HTTPException(404, detail={"code": "MARKET_NOT_FOUND"})
     return item
@@ -135,33 +137,35 @@ def analyze(request: SolverRequest):
 
 @app.post("/api/v1/quotes")
 def quote(payload: dict):
-    relationship = next((item for item in store.relationships if item["canonicalDefinitionHash"] == payload.get("solverRequest", {}).get("relationshipDefinitionHash")), None)
+    relationship = store.get_relationship_by_hash(
+        payload.get("solverRequest", {}).get("relationshipDefinitionHash", "")
+    )
     if not relationship or relationship["status"] != "APPROVED":
         raise HTTPException(422, detail={"code": "RELATIONSHIP_NOT_ACTIVE"})
     try:
-        result = issue_quote(payload, settings, store.next_nonce)
+        result = issue_quote(payload, settings, store.allocate_quote_nonce())
     except (ValueError, TypeError) as exc:
         raise HTTPException(422, detail={"code": "QUOTE_REJECTED", "reason": str(exc)}) from exc
-    store.next_nonce += 1
-    store.quotes[result["id"]] = result
+    store.save_quote(result["id"], result)
     return result
 
 
 @app.get("/api/v1/quotes/{quote_id}")
 def get_quote(quote_id: str):
-    if quote_id not in store.quotes:
+    result = store.get_quote(quote_id)
+    if result is None:
         raise HTTPException(404, detail={"code": "QUOTE_NOT_FOUND"})
-    return store.quotes[quote_id]
+    return result
 
 
 @app.get("/api/v1/bundles")
 def bundles():
-    return {"data": store.bundles}
+    return {"data": store.list_bundles()}
 
 
 @app.get("/api/v1/bundles/{bundle_id}")
 def bundle(bundle_id: str):
-    item = next((item for item in store.bundles if item["id"] == bundle_id), None)
+    item = store.get_bundle(bundle_id)
     if not item:
         raise HTTPException(404, detail={"code": "BUNDLE_NOT_FOUND"})
     return item
@@ -179,12 +183,12 @@ def settle(bundle_id: str):
 
 @app.get("/api/v1/relationships")
 def relationships():
-    return {"data": store.relationships}
+    return {"data": store.list_relationships()}
 
 
 @app.get("/api/v1/relationships/{relationship_id}")
 def relationship(relationship_id: str):
-    item = next((item for item in store.relationships if item["id"] == relationship_id), None)
+    item = store.get_relationship(relationship_id)
     if not item:
         raise HTTPException(404, detail={"code": "RELATIONSHIP_NOT_FOUND"})
     return item
@@ -192,9 +196,14 @@ def relationship(relationship_id: str):
 
 @app.post("/api/v1/admin/relationships")
 def create_relationship(payload: dict, actor: str = Depends(admin)):
+    if not payload.get("id"):
+        raise HTTPException(422, detail={"code": "RELATIONSHIP_ID_REQUIRED"})
     item = {**payload, "status": "DRAFT"}
-    store.relationships.append(item)
-    store.audit_logs.append({"actor": actor, "action": "RELATIONSHIP_CREATED", "target": item.get("id")})
+    try:
+        store.create_relationship(item)
+    except ValueError as exc:
+        raise HTTPException(409, detail={"code": str(exc)}) from exc
+    store.append_audit_log({"actor": actor, "action": "RELATIONSHIP_CREATED", "target": item["id"]})
     return item
 
 
@@ -202,9 +211,13 @@ def create_relationship(payload: dict, actor: str = Depends(admin)):
 def relationship_action(relationship_id: str, action: str, actor: str = Depends(admin)):
     if action not in {"review", "approve", "suspend"}:
         raise HTTPException(404, detail={"code": "ACTION_NOT_FOUND"})
-    item = relationship(relationship_id)
-    item["status"] = {"review": "REVIEW", "approve": "APPROVED", "suspend": "SUSPENDED"}[action]
-    store.audit_logs.append({"actor": actor, "action": f"RELATIONSHIP_{action.upper()}", "target": relationship_id})
+    item = store.set_relationship_status(
+        relationship_id,
+        {"review": "REVIEW", "approve": "APPROVED", "suspend": "SUSPENDED"}[action],
+    )
+    if item is None:
+        raise HTTPException(404, detail={"code": "RELATIONSHIP_NOT_FOUND"})
+    store.append_audit_log({"actor": actor, "action": f"RELATIONSHIP_{action.upper()}", "target": relationship_id})
     return item
 
 

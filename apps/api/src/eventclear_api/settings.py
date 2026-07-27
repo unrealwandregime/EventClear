@@ -7,6 +7,8 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class Settings:
     mode: str = os.getenv("EVENTCLEAR_MODE", "local")
+    store_backend: str = os.getenv("EVENTCLEAR_STORE", "memory")
+    database_url: str = os.getenv("DATABASE_URL", "")
     chain_id: int = int(os.getenv("CHAIN_ID", "31337"))
     vault_address: str = os.getenv("VAULT_ADDRESS", "0x0000000000000000000000000000000000001000")
     signer_key: str = os.getenv(
@@ -18,6 +20,10 @@ class Settings:
     def validate(self) -> None:
         if self.mode not in {"local", "polygon-fork", "polygon-mainnet"}:
             raise RuntimeError("INVALID_OPERATING_MODE")
+        if self.store_backend not in {"memory", "postgres"}:
+            raise RuntimeError("INVALID_STORE_BACKEND")
+        if self.store_backend == "postgres" and not self.database_url:
+            raise RuntimeError("DATABASE_URL_REQUIRED")
         if self.mode == "polygon-mainnet":
             required = (
                 "ENABLE_MAINNET_EXECUTION",
@@ -27,5 +33,9 @@ class Settings:
                 "RPC_FAILOVER_CONFIGURED",
             )
             missing = [key for key in required if os.getenv(key) != "true"]
+            if self.store_backend != "postgres":
+                missing.append("EVENTCLEAR_STORE=postgres")
+            if not self.database_url:
+                missing.append("DATABASE_URL")
             if missing or self.chain_id != 137:
                 raise RuntimeError(f"MAINNET_SAFETY_GATE_FAILED:{','.join(missing)}")
