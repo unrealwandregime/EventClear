@@ -5,7 +5,7 @@ PYTHON ?= python
 install:
 	$(PNPM) install
 	$(PYTHON) -m pip install -e apps/solver -e apps/api
-	cd packages/contracts && forge install OpenZeppelin/openzeppelin-contracts@v5.4.0 foundry-rs/forge-std --no-commit
+	cd packages/contracts && forge install OpenZeppelin/openzeppelin-contracts@v5.4.0 foundry-rs/forge-std --no-git
 
 dev:
 	docker compose up --build

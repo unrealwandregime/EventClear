@@ -2,6 +2,7 @@
   "name": "eventclear",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@10.15.0",
   "engines": {
     "node": ">=22.13.0"
   },
@@ -37,7 +38,7 @@
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.47.0",
-    "@playwright/test": "1.54.1",
+    "@playwright/test": "1.62.0",
     "@tailwindcss/postcss": "4.2.1",
     "@types/node": "22.19.19",
     "@types/react": "19.2.14",
