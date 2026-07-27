@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-27  
 Target release: EventClear v1 controlled, allowlisted production beta  
-Current source baseline: `a1fbe7d0b01bc6477d46b7d7fac67cbe0bbce335`
+Current source baseline: `054a2195332aa356f731c617c78640aa92dc9813`
 
 This is the resumable source of truth. A milestone is operational only when its
 acceptance commands and required behavior have been executed.
@@ -15,7 +15,7 @@ acceptance commands and required behavior have been executed.
 | Independent security review complete | No |
 | Legal release approved | No |
 | Mainnet capital activated | No |
-| Public read-only frontend deployed | Yes, Sites version 3 |
+| Public read-only frontend deployed | Yes, Sites version 5 |
 
 ## Milestone 0 — Existing repository audit
 
@@ -125,7 +125,8 @@ Remaining blockers:
 - The checked `make demo-lifecycle` target is implemented, but GNU Make is not
   installed on this host; its underlying commands passed.
 
-Relevant commit: pending  
+Relevant commit: `ba562d35bb4d0c736c1e2b77dc425e6ebcc335ff`
+
 Genuinely operational: **No.**
 
 ## Milestone 3 — Live read integration
@@ -148,7 +149,8 @@ Remaining blockers:
   population.
 - End-to-end live API verification against production infrastructure.
 
-Relevant commit: pending  
+Relevant commit: `ba562d35bb4d0c736c1e2b77dc425e6ebcc335ff`
+
 Genuinely operational: **No.**
 
 ## Milestone 4 — Polygon fork
@@ -166,16 +168,24 @@ Completed:
   the original custom adapter design.
 - Corrected collateral-adapter addresses against Polymarket's official
   `ctf-exchange-v2` registry; fork and mainnet manifests verify through two RPCs.
+- Deployed the complete EventClear registry, claims, treasury, pool, risk policy,
+  standard adapter and vault on the pinned fork.
+- Financed an exact real resolved position with a signed quote, transferred it
+  from the borrower into the vault, redeemed it through deployed Polymarket
+  contracts, released exposure, realized principal and financing return in the
+  pool, recorded both fee sources, and burned the borrower's residual claim.
+- Full fork result: 3 passed, 0 failed (manifest, isolated adapter redemption and
+  EventClear vault/pool lifecycle).
 
 Remaining blockers:
 
-- Extend the fork scenario through the complete EventClear vault financing
-  lifecycle rather than adapter-level escrow/redemption only.
 - Add a negative-risk read-only fixture while keeping originations disabled.
 - Execute the checked `make test-fork` wrapper in Linux CI (the underlying
   pinned command passed on this host).
 
-Relevant commit: pending  
+Relevant commits: `02f26dbd31df85ca8d8670b8fe7c716e09ce6b15`,
+`054a2195332aa356f731c617c78640aa92dc9813`
+
 Genuinely operational: **No.**
 
 ## Milestone 5 — Staging deployment
@@ -196,13 +206,18 @@ Completed:
   Data API wallet positions; exact decimal conversion and no signing secrets.
 - Empty/unavailable EventClear protocol state is explicit until verified
   contracts and indexed data exist; it is never replaced with seed metrics.
+- Anonymous production verification returned HTTP 200 for the site, public
+  config, protocol metrics, bundles, relationships, live markets and wallet
+  positions. The pool endpoint intentionally returns HTTP 503 until a verified
+  EventClear pool address is deployed.
 
 Remaining blockers:
 
 - Relationship review database and live solver analysis.
 - Durable production indexer/database and deployed EventClear contracts.
 
-Relevant commit: pending  
+Relevant commit: `c92c0663a7f09e1497e7e8952aee6ece1abaef2a`
+
 Genuinely operational: **No.**
 
 ## Milestone 7 — Controlled mainnet beta preparation
@@ -229,4 +244,5 @@ Genuinely operational: **No.**
 2. Add browser wallet E2E and indexer reorg integration coverage.
 3. Complete CLOB/history ingestion and immutable relationship-repository solver
    loading.
-4. Pin and execute the Polygon fork lifecycle with real position fixtures.
+4. Add the negative-risk read-only fork fixture while keeping originations
+   disabled.
