@@ -32,11 +32,36 @@ class PayoutVector(StrictModel):
     payoutsAtomicByToken: dict[str, Atomic]
 
 
+class ThresholdPredicate(StrictModel):
+    conditionId: str
+    underlyingAsset: str
+    quoteCurrency: str
+    comparator: Literal["GT", "GTE", "LT", "LTE"]
+    thresholdAtomic: Atomic
+    observationType: str
+    observationTimestamp: str
+    priceSource: str
+    resolutionSource: str
+    cancellationBehavior: str
+    fractionalResolutionBehavior: str
+    ruleDocumentHash: str
+
+    @field_validator("thresholdAtomic")
+    @classmethod
+    def integer_threshold(cls, value: str) -> str:
+        if not value.lstrip("-").isdigit():
+            raise ValueError("thresholdAtomic must be a base-10 integer")
+        return value
+
+
 class PayoutModel(StrictModel):
     definitionHash: str
     definitionVersion: int = Field(ge=1)
+    ruleDocumentHash: str
+    predicates: list[ThresholdPredicate] = Field(min_length=1)
     allowedTokens: dict[str, dict[str, str]]
     validWorlds: list[PayoutVector]
+    exceptionalWorlds: list[PayoutVector] = Field(default_factory=list)
     payoutSemanticsComplete: bool = True
     compatibilityChecksPassed: bool = True
     incompatibilityReasons: list[str] = Field(default_factory=list)

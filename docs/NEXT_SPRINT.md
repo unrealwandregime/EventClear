@@ -13,7 +13,7 @@ Baseline: `7d65bb3bf8fd5d714a3c8a536389ebc5f2e76b10`
 - [x] Pay no protocol fee on break-even or shortfall settlement.
 - [x] Revalidate relationship, proof, balances, market state, liquidity and risk
       immediately before quote signing.
-- [ ] Generate crypto-threshold worlds from reviewed predicates and compare the
+- [x] Generate crypto-threshold worlds from reviewed predicates and compare the
       generated set with the reviewed truth table.
 
 ## Connected lifecycle

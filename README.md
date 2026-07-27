@@ -58,17 +58,25 @@ pnpm indexer:reconcile
 
 ## Solver methodology
 
-All amounts are pUSD atomic integers (six decimals). Each approved definition supplies the complete set of valid terminal worlds and token payout numerators. The solver:
+All amounts are pUSD atomic integers (six decimals). Each approved threshold
+definition supplies normalized predicates plus an independently reviewed truth
+table. The solver:
 
 1. Checks the exact definition hash/version and every leg’s condition, token, and outcome.
-2. Rejects duplicates, incomplete payout semantics, mismatched observation rules, and empty/contradictory world sets.
-3. Computes every leg payout with integer arithmetic in every valid world.
-4. Returns minimum and maximum witnesses plus a canonical SHA-256 proof artifact.
-5. Reproduces a saved artifact with `eventclear-solver verify proof.json`.
+2. Generates every terminal price region from exact integer/rational threshold
+   boundaries, including strict versus inclusive comparisons.
+3. Applies reviewed exceptional fractional/cancellation states and rejects any
+   mismatch with the independent truth table.
+4. Computes every leg payout with integer arithmetic in every generated world.
+5. Returns minimum and maximum witnesses plus a canonical SHA-256 proof artifact.
+6. Reproduces a saved artifact with `eventclear-solver verify proof.json`.
 
 For 100 YES shares above $100K plus 100 NO shares above $150K, the three valid payouts are 100, 200, and 100 pUSD. The proven floor is therefore 100 pUSD. With 80 and 100 shares, the payouts are 100, 180, and 80; the floor is 80.
 
-The solver proves the supplied formal model, not the truth of a wrongly authored model. Definition review and rule hashes are therefore capital controls, not documentation.
+The solver proves consistency between reviewed predicates, generated worlds and
+the reviewed truth table; it does not prove that real-world source rules were
+authored correctly. Definition review and rule hashes are therefore capital
+controls, not documentation.
 
 ## Contracts
 

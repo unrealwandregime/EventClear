@@ -23,7 +23,7 @@ Baseline commit: `7d65bb3bf8fd5d714a3c8a536389ebc5f2e76b10`
 
 In progress:
 
-- Generated threshold worlds, connected UI,
+- Connected UI,
   indexer completion, browser E2E, CI and staging preparation.
 
 The public deployment remains `production-readonly`. No EventClear mainnet
@@ -62,6 +62,13 @@ Completed in this sprint:
   risk limit.
 - The solver timestamp checked in preflight is reused for signing, and quote
   issuance aborts if the artifact hash changes between those operations.
+- Solver v2 derives terminal regions from normalized reviewed threshold
+  predicates with exact rational boundary evaluation, then requires exact
+  payout-vector agreement with the independently reviewed truth table.
+- Property coverage includes two/three thresholds, mixed sides, unequal
+  quantities, strict/inclusive boundaries, fractional states, duplicate
+  thresholds, contradictions, missing/extra reviewed regions, reordered
+  predicates and modified rule hashes.
 
 ## Milestone 0 — Existing repository audit
 

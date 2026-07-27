@@ -8,8 +8,9 @@ from pathlib import Path
 from z3 import Int, Optimize, Or, sat
 
 from .models import ProofArtifact, SolverRequest, SolverResult, TerminalWorld
+from .thresholds import generate_threshold_worlds
 
-SOLVER_VERSION = "eventclear-crypto-threshold-z3/1.0.0"
+SOLVER_VERSION = "eventclear-crypto-threshold-z3/2.0.0"
 ZERO_HASH = "0x" + "00" * 32
 
 
@@ -23,7 +24,7 @@ def _hash(value: object) -> str:
     return "0x" + hashlib.sha256(canonical_bytes(value)).hexdigest()
 
 
-def _rejections(request: SolverRequest) -> list[str]:
+def _rejections(request: SolverRequest) -> tuple[list[str], list]:
     model = request.payoutModel
     reasons: list[str] = []
     if request.relationshipDefinitionHash != model.definitionHash:
@@ -45,17 +46,19 @@ def _rejections(request: SolverRequest) -> list[str]:
             reasons.append(f"TOKEN_NOT_IN_DEFINITION:{leg.tokenId}")
         elif token.get("conditionId") != leg.conditionId or token.get("outcome") != leg.outcome:
             reasons.append(f"LEG_SEMANTICS_MISMATCH:{leg.tokenId}")
-    if not model.validWorlds:
+    generated_worlds, generation_reasons = generate_threshold_worlds(model)
+    reasons.extend(generation_reasons)
+    if not generated_worlds:
         reasons.append("NO_VALID_TERMINAL_WORLDS")
-    return sorted(set(reasons))
+    return sorted(set(reasons)), generated_worlds
 
 
 def solve(request: SolverRequest, *, include_all_worlds: bool = True, timestamp: str | None = None) -> SolverResult:
-    reasons = _rejections(request)
+    reasons, generated_worlds = _rejections(request)
     calculated_at = timestamp or datetime.now(UTC).isoformat().replace("+00:00", "Z")
     worlds: list[TerminalWorld] = []
     if not reasons:
-        for candidate in sorted(request.payoutModel.validWorlds, key=lambda item: item.worldId):
+        for candidate in generated_worlds:
             leg_payouts: list[str] = []
             total = 0
             for leg in request.legs:
