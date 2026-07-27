@@ -4,7 +4,7 @@ PYTHON ?= python
 .PHONY: install dev stop reset seed test test-contracts test-solver test-api test-indexer test-e2e test-fork lint typecheck security deploy-local demo-lifecycle
 install:
 	$(PNPM) install
-	$(PYTHON) -m pip install -e apps/solver -e apps/api
+	$(PYTHON) -m pip install -e apps/solver -e apps/api pytest
 	cd packages/contracts && forge install OpenZeppelin/openzeppelin-contracts@v5.4.0 foundry-rs/forge-std --no-git
 
 dev:
