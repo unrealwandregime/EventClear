@@ -7,6 +7,7 @@ import {EventClearClaims} from "../src/EventClearClaims.sol";
 import {EventClearFundingPool} from "../src/EventClearFundingPool.sol";
 import {EventClearTreasury} from "../src/EventClearTreasury.sol";
 import {RelationshipRegistry} from "../src/RelationshipRegistry.sol";
+import {RiskPolicy} from "../src/RiskPolicy.sol";
 import {MockPUSD} from "../src/mocks/MockPUSD.sol";
 import {MockConditionalTokens} from "../src/mocks/MockConditionalTokens.sol";
 import {MockCTFAdapter} from "../src/mocks/MockCTFAdapter.sol";
@@ -27,12 +28,16 @@ contract DeployLocal is Script {
         EventClearTreasury treasury = new EventClearTreasury(deployer);
         EventClearFundingPool pool =
             new EventClearFundingPool(pusd, deployer, address(treasury), 10_000_000e6, 500_000e6);
+        RiskPolicy riskPolicy = new RiskPolicy(deployer, signer);
+        riskPolicy.setAdapterAllowed(address(adapter), true);
+        riskPolicy.setCollateralAllowed(address(pusd), true);
         EventClearVault vault = new EventClearVault(
-            pusd, ctf, registry, claims, pool, IRedemptionAdapter(address(adapter)), signer, deployer
+            pusd, ctf, registry, claims, pool, IRedemptionAdapter(address(adapter)), riskPolicy, deployer
         );
         claims.grantRole(claims.VAULT_ROLE(), address(vault));
         pool.grantRole(pool.VAULT_ROLE(), address(vault));
         treasury.grantRole(treasury.RECORDER_ROLE(), address(pool));
+        riskPolicy.grantRole(riskPolicy.VAULT_ROLE(), address(vault));
         vm.stopBroadcast();
     }
 }

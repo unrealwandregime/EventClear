@@ -9,11 +9,9 @@ import {EventClearClaims} from "../src/EventClearClaims.sol";
 import {EventClearFundingPool} from "../src/EventClearFundingPool.sol";
 import {EventClearTreasury} from "../src/EventClearTreasury.sol";
 import {RelationshipRegistry} from "../src/RelationshipRegistry.sol";
-import {
-    PolymarketStandardAdapter,
-    IPolymarketConditionalTokens,
-    IPolymarketCollateralToken
-} from "../src/PolymarketStandardAdapter.sol";
+import {RiskPolicy} from "../src/RiskPolicy.sol";
+import {IPolymarketConditionalTokens, IPolymarketCollateralToken} from "../src/PolymarketStandardAdapter.sol";
+import {PolymarketStandardCTFAdapter} from "../src/PolymarketStandardCTFAdapter.sol";
 
 /// @notice Production deployment with transient deployer privileges removed in the same broadcast.
 /// @dev This script prepares a standard-market-only pilot. Negative-risk bundles remain disabled.
@@ -25,7 +23,7 @@ contract DeployPolygonMainnet is Script {
     function run() external {
         if (block.chainid != 137) revert WrongChain();
         string memory manifest =
-            vm.readFile(string.concat(vm.projectRoot(), "/../../config/polygon-mainnet.contracts.json"));
+            vm.readFile(string.concat(vm.projectRoot(), "/../../config/contracts/polygon-mainnet.json"));
         address pUSDAddress = vm.parseJsonAddress(manifest, ".contracts.pUSD.address");
         address usdceAddress = vm.parseJsonAddress(manifest, ".contracts.usdce.address");
         address ctfAddress = vm.parseJsonAddress(manifest, ".contracts.conditionalTokens.address");
@@ -57,9 +55,12 @@ contract DeployPolygonMainnet is Script {
             new EventClearFundingPool(IERC20(pUSDAddress), deployer, address(treasury), depositCap, perBundleCap);
         RelationshipRegistry registry = new RelationshipRegistry(deployer);
         EventClearClaims claims = new EventClearClaims(deployer);
-        PolymarketStandardAdapter adapter = new PolymarketStandardAdapter(
+        PolymarketStandardCTFAdapter adapter = new PolymarketStandardCTFAdapter(
             IPolymarketConditionalTokens(ctfAddress), IPolymarketCollateralToken(pUSDAddress), IERC20(usdceAddress)
         );
+        RiskPolicy riskPolicy = new RiskPolicy(deployer, riskSigner);
+        riskPolicy.setAdapterAllowed(address(adapter), true);
+        riskPolicy.setCollateralAllowed(pUSDAddress, true);
         EventClearVault vault = new EventClearVault(
             IERC20(pUSDAddress),
             IERC1155(ctfAddress),
@@ -67,14 +68,16 @@ contract DeployPolygonMainnet is Script {
             claims,
             pool,
             IRedemptionAdapter(address(adapter)),
-            riskSigner,
+            riskPolicy,
             deployer
         );
 
         claims.grantRole(claims.VAULT_ROLE(), address(vault));
         pool.grantRole(pool.VAULT_ROLE(), address(vault));
         treasury.grantRole(treasury.RECORDER_ROLE(), address(pool));
+        riskPolicy.grantRole(riskPolicy.VAULT_ROLE(), address(vault));
         vault.setOriginationsPaused(true);
+        riskPolicy.setOriginationsPaused(true);
 
         registry.grantRole(registry.DEFAULT_ADMIN_ROLE(), governance);
         registry.grantRole(registry.REVIEWER_ROLE(), reviewer);
@@ -85,7 +88,8 @@ contract DeployPolygonMainnet is Script {
         treasury.grantRole(treasury.DEFAULT_ADMIN_ROLE(), treasuryAdmin);
         vault.grantRole(vault.DEFAULT_ADMIN_ROLE(), governance);
         vault.grantRole(vault.PAUSER_ROLE(), pauser);
-        vault.grantRole(vault.RISK_ADMIN_ROLE(), riskAdmin);
+        riskPolicy.grantRole(riskPolicy.DEFAULT_ADMIN_ROLE(), governance);
+        riskPolicy.grantRole(riskPolicy.RISK_ADMIN_ROLE(), riskAdmin);
 
         registry.renounceRole(registry.REVIEWER_ROLE(), deployer);
         registry.renounceRole(registry.SUSPENDER_ROLE(), deployer);
@@ -96,8 +100,9 @@ contract DeployPolygonMainnet is Script {
         treasury.renounceRole(treasury.RECORDER_ROLE(), deployer);
         treasury.renounceRole(treasury.DEFAULT_ADMIN_ROLE(), deployer);
         vault.renounceRole(vault.PAUSER_ROLE(), deployer);
-        vault.renounceRole(vault.RISK_ADMIN_ROLE(), deployer);
         vault.renounceRole(vault.DEFAULT_ADMIN_ROLE(), deployer);
+        riskPolicy.renounceRole(riskPolicy.RISK_ADMIN_ROLE(), deployer);
+        riskPolicy.renounceRole(riskPolicy.DEFAULT_ADMIN_ROLE(), deployer);
         vm.stopBroadcast();
 
         string memory deployment = "eventclear";
@@ -108,6 +113,7 @@ contract DeployPolygonMainnet is Script {
         vm.serializeAddress(deployment, "claims", address(claims));
         vm.serializeAddress(deployment, "pool", address(pool));
         vm.serializeAddress(deployment, "treasury", address(treasury));
+        vm.serializeAddress(deployment, "riskPolicy", address(riskPolicy));
         string memory output = vm.serializeAddress(deployment, "vault", address(vault));
         vm.writeJson(output, string.concat(vm.projectRoot(), "/../../config/polygon-mainnet.eventclear.json"));
     }

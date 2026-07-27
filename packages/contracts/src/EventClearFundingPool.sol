@@ -24,20 +24,28 @@ contract EventClearFundingPool is ERC4626, AccessControl, ERC1155Holder {
 
     uint256 public outstandingAdvanceCostBasis;
     uint256 public realizedYield;
+    uint256 public realizedLoss;
     uint256 public depositCap;
     uint256 public perBundleCap;
     uint16 public utilizationCapBps = 8_000;
     uint16 public minimumReserveBps = 1_000;
+    uint16 public protocolYieldFeeBps = 1_000;
     mapping(uint256 bundleId => uint256) public advanceCostBasis;
-    mapping(uint256 bundleId => uint256) public originationFee;
     address public immutable feeTreasury;
 
     error CapExceeded();
     error InsufficientLiquidity();
     error BundleAlreadyFunded();
     error InvalidTreasury();
+    error InvalidAdvance();
 
-    event AdvanceFunded(uint256 indexed bundleId, address indexed borrower, uint256 amount);
+    event AdvanceFunded(
+        uint256 indexed bundleId,
+        address indexed borrower,
+        uint256 grossAdvance,
+        uint256 originationFee,
+        uint256 netAdvance
+    );
     event PrincipalSettled(
         uint256 indexed bundleId, uint256 principalReceived, uint256 realizedNetYield, uint256 protocolFee
     );
@@ -76,6 +84,7 @@ contract EventClearFundingPool is ERC4626, AccessControl, ERC1155Holder {
         onlyRole(VAULT_ROLE)
     {
         if (advanceCostBasis[bundleId] != 0) revert BundleAlreadyFunded();
+        if (borrower == address(0) || amount == 0 || fee >= amount) revert InvalidAdvance();
         if (amount > perBundleCap) revert CapExceeded();
         uint256 assets = totalAssets();
         if (assets == 0 || (outstandingAdvanceCostBasis + amount) * 10_000 > assets * utilizationCapBps) {
@@ -84,10 +93,14 @@ contract EventClearFundingPool is ERC4626, AccessControl, ERC1155Holder {
         uint256 liquid = IERC20(asset()).balanceOf(address(this));
         if (liquid < amount || liquid - amount < assets * minimumReserveBps / 10_000) revert InsufficientLiquidity();
         advanceCostBasis[bundleId] = amount;
-        originationFee[bundleId] = fee;
         outstandingAdvanceCostBasis += amount;
-        IERC20(asset()).safeTransfer(borrower, amount);
-        emit AdvanceFunded(bundleId, borrower, amount);
+        uint256 netAdvance = amount - fee;
+        IERC20(asset()).safeTransfer(borrower, netAdvance);
+        if (fee != 0) {
+            IERC20(asset()).safeTransfer(feeTreasury, fee);
+            IFeeTreasury(feeTreasury).recordFee(keccak256("ORIGINATION"), fee);
+        }
+        emit AdvanceFunded(bundleId, borrower, amount, fee, netAdvance);
     }
 
     function recordSettlement(uint256 bundleId, uint256 principalReceived) external onlyRole(VAULT_ROLE) {
@@ -105,16 +118,16 @@ contract EventClearFundingPool is ERC4626, AccessControl, ERC1155Holder {
         uint256 cost = advanceCostBasis[bundleId];
         if (cost == 0) revert InsufficientLiquidity();
         advanceCostBasis[bundleId] = 0;
-        uint256 configuredFee = originationFee[bundleId];
-        originationFee[bundleId] = 0;
         outstandingAdvanceCostBasis -= cost;
         uint256 grossYield = principalReceived > cost ? principalReceived - cost : 0;
-        uint256 protocolFee = configuredFee < grossYield ? configuredFee : grossYield;
+        uint256 loss = principalReceived < cost ? cost - principalReceived : 0;
+        uint256 protocolFee = grossYield * protocolYieldFeeBps / 10_000;
         uint256 netYield = grossYield - protocolFee;
         realizedYield += netYield;
+        realizedLoss += loss;
         if (protocolFee != 0) {
             IERC20(asset()).safeTransfer(feeTreasury, protocolFee);
-            IFeeTreasury(feeTreasury).recordFee(keccak256("ORIGINATION"), protocolFee);
+            IFeeTreasury(feeTreasury).recordFee(keccak256("REALIZED_FINANCING_RETURN"), protocolFee);
         }
         emit PrincipalSettled(bundleId, principalReceived, netYield, protocolFee);
     }
@@ -123,6 +136,26 @@ contract EventClearFundingPool is ERC4626, AccessControl, ERC1155Holder {
         if (utilization > 10_000 || reserve > utilization) revert CapExceeded();
         utilizationCapBps = utilization;
         minimumReserveBps = reserve;
+    }
+
+    function setProtocolYieldFee(uint16 feeBps) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (feeBps > 10_000) revert CapExceeded();
+        protocolYieldFeeBps = feeBps;
+    }
+
+    function liquidAssets() external view returns (uint256) {
+        return IERC20(asset()).balanceOf(address(this));
+    }
+
+    function accruedUnearnedDiscount() external pure returns (uint256) {
+        // Principal entitlements are held as ERC-1155 claims and are not counted
+        // as earned until redemption, so no discount is accrued into book assets.
+        return 0;
+    }
+
+    function utilizationBps() external view returns (uint256) {
+        uint256 assets = totalAssets();
+        return assets == 0 ? 0 : outstandingAdvanceCostBasis * 10_000 / assets;
     }
 
     function supportsInterface(bytes4 interfaceId) public view override(AccessControl, ERC1155Holder) returns (bool) {

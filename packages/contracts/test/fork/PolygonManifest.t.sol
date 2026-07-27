@@ -32,7 +32,7 @@ contract PolygonManifestForkTest is Test {
 
     function testOfficialContractBytecodeAndInterfaces() public view {
         if (block.chainid != 137) return;
-        string memory manifest = vm.readFile("../../config/polygon-mainnet.contracts.json");
+        string memory manifest = vm.readFile("../../config/contracts/polygon-mainnet.json");
         string[13] memory names = [
             "conditionalTokens",
             "pUSD",

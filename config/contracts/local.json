@@ -1,0 +1,8 @@
+{
+  "environment": "local",
+  "chainId": 31337,
+  "reviewedAt": "2026-07-27T00:00:00Z",
+  "registrySource": "https://docs.polymarket.com/resources/contracts",
+  "manifestHash": "0x0ccd545a6f28f4830673f37977240411db98bbb3b098cdaa2e2640a65ce21987",
+  "contracts": {}
+}

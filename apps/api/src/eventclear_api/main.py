@@ -36,7 +36,7 @@ rate_windows: dict[str, deque[float]] = defaultdict(deque)
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     settings.validate()
-    if settings.mode == "polygon-mainnet":
+    if settings.normalized_mode in {"production-readonly", "production-controlled"}:
         if redis_client is None or not await redis_client.ping():
             raise RuntimeError("REDIS_RATE_LIMITER_UNAVAILABLE")
     yield
@@ -62,7 +62,7 @@ async def controls(request: Request, call_next):
             if count > 120:
                 return JSONResponse(status_code=429, content={"error": {"code": "RATE_LIMITED", "correlationId": correlation_id}})
         except RedisError:
-            if settings.mode == "polygon-mainnet":
+            if settings.normalized_mode in {"production-readonly", "production-controlled"}:
                 return JSONResponse(status_code=503, content={"error": {"code": "RATE_LIMITER_UNAVAILABLE", "correlationId": correlation_id}})
     else:
         window = rate_windows[key]
@@ -88,12 +88,18 @@ def admin(x_admin_token: str | None = Header(default=None)) -> str:
 
 @app.get("/api/v1/health")
 def health():
-    return {"status": "ok", "mode": settings.mode, "database": "configured", "chainId": settings.chain_id}
+    return {"status": "ok", "mode": settings.normalized_mode, "database": "configured", "chainId": settings.chain_id}
 
 
 @app.get("/api/v1/config/public")
 def public_config():
-    return {"mode": settings.mode, "chainId": settings.chain_id, "vaultAddress": settings.vault_address, "mainnetExecution": settings.mode == "polygon-mainnet"}
+    return {
+        "mode": settings.normalized_mode,
+        "chainId": settings.chain_id,
+        "vaultAddress": settings.vault_address,
+        "mainnetExecution": settings.execution_enabled,
+        "dataSource": "seeded" if settings.normalized_mode in {"local", "test"} else "live",
+    }
 
 
 @app.post("/api/v1/auth/siwe/nonce")
@@ -186,6 +192,8 @@ def analyze(request: SolverRequest):
 
 @app.post("/api/v1/quotes")
 def quote(payload: dict):
+    if settings.normalized_mode == "production-readonly":
+        raise HTTPException(403, detail={"code": "PRODUCTION_READONLY"})
     relationship = store.get_relationship_by_hash(
         payload.get("solverRequest", {}).get("relationshipDefinitionHash", "")
     )

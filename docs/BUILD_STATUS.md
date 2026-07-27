@@ -54,25 +54,45 @@ Results:
 
 Remaining blocker: commit this milestone and record the resulting hash.  
 Relevant baseline commit: `ff1955831bb2be3cea69da8e62096c024656720a`  
-Milestone commit: pending  
+Milestone commit: `abb12300f689d7b712026c444b366b4858bbb709`
 Genuinely operational: **Yes for audit/baseline only.**
 
 ## Milestone 1 — Deterministic local protocol
 
 Completed:
 
-- Initial Z3 solver and proof verification.
-- Initial registry, claims, vault, pool, treasury and standard CTF adapter.
-- EIP-712 quote enforcement and local lifecycle tests.
+- Versioned Z3 solver output and tamper-detecting proof verification.
+- Required equal, unequal, reversed, three-threshold, incompatibility,
+  fractional-resolution, duplicate, unknown-token and contradiction cases.
+- Registry, deterministic claims, ERC-4626 pool, treasury, standard CTF adapter
+  and standalone `RiskPolicy`.
+- EIP-712 quotes bound to borrower, position wallet, exact bundle, relationship,
+  solver artifact, pool, collateral, chain and vault.
+- Gross/net advance and upfront origination-fee model.
+- Per-wallet, market, relationship and global exposure controls.
 - Principal-first shortfall-safe settlement.
+- Settlement and claim burns remain available while originations/transfers are
+  paused.
+- Schema-validated, hashed local/fork/mainnet contract manifests.
+- Live mainnet manifest verification through two Polygon RPC providers.
+
+Tests executed:
+
+- Python: 22 passed, 0 failed.
+- Solidity: 14 passed, 0 failed, including 512 lifecycle fuzz cases.
+- Pool invariants: 2 passed over 16,384 handler calls.
+- TypeScript typecheck and lint: passed.
+- Local manifest verification: passed.
+- Polygon-mainnet manifest verification through two providers: passed.
 
 Remaining blockers:
 
-- Canonical semantic model, invalid-market rational handling and mandatory cases.
-- Standalone `RiskPolicy.sol`.
-- ERC-4626 pool and exposure controls.
-- Required adversarial contract tests and invariants.
-- Exact requested manifest layout and validation command.
+- Complete every listed adversarial contract case, especially malicious
+  callbacks, rescue restrictions and withdrawal-bank-run scenarios.
+- Move approved-definition loading out of inline solver artifacts and into the
+  immutable relationship repository.
+- Add complete structured claim metadata.
+- Prove exact Make targets in Linux CI.
 
 Relevant commit: pending  
 Genuinely operational: **No.**

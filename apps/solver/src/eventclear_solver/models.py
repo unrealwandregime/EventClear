@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 
 Atomic = str
@@ -44,9 +44,16 @@ class PayoutModel(StrictModel):
 
 class SolverRequest(StrictModel):
     relationshipDefinitionHash: str
-    definitionVersion: int = Field(ge=1)
+    relationshipVersion: int = Field(
+        ge=1,
+        validation_alias=AliasChoices("relationshipVersion", "definitionVersion"),
+    )
     legs: list[Leg] = Field(min_length=1)
     payoutModel: PayoutModel
+
+    @property
+    def definitionVersion(self) -> int:
+        return self.relationshipVersion
 
 
 class TerminalWorld(StrictModel):
@@ -57,18 +64,50 @@ class TerminalWorld(StrictModel):
 
 
 class SolverResult(StrictModel):
-    isSatisfiable: bool
+    approvedDefinitionFound: bool
+    satisfiable: bool
+    financingEligible: bool
     guaranteedFloorAtomic: Atomic
     maximumPayoutAtomic: Atomic
     validWorldCount: int
-    minimumWorlds: list[TerminalWorld]
-    maximumWorlds: list[TerminalWorld]
-    allWorlds: list[TerminalWorld] | None = None
-    proofArtifactHash: str
+    terminalWorlds: list[TerminalWorld]
+    minimumWitnessWorlds: list[TerminalWorld]
+    maximumWitnessWorlds: list[TerminalWorld]
+    inputHash: str
     definitionHash: str
+    artifactHash: str
     solverVersion: str
-    calculationTimestamp: str
-    rejectionReasons: list[str]
+    generatedAt: str
+    rejectionCodes: list[str]
+    rejectionExplanations: list[str]
+
+    @property
+    def isSatisfiable(self) -> bool:
+        return self.satisfiable
+
+    @property
+    def minimumWorlds(self) -> list[TerminalWorld]:
+        return self.minimumWitnessWorlds
+
+    @property
+    def maximumWorlds(self) -> list[TerminalWorld]:
+        return self.maximumWitnessWorlds
+
+    @property
+    def allWorlds(self) -> list[TerminalWorld]:
+        return self.terminalWorlds
+
+    @property
+    def proofArtifactHash(self) -> str:
+        return self.artifactHash
+
+    @property
+    def calculationTimestamp(self) -> str:
+        return self.generatedAt
+
+    @property
+    def rejectionReasons(self) -> list[str]:
+        return self.rejectionCodes
 
 
 class ProofArtifact(StrictModel):

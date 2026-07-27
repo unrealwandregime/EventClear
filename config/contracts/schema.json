@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://eventclear.local/schemas/contract-manifest.json",
+  "title": "EventClear contract manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "environment",
+    "chainId",
+    "reviewedAt",
+    "registrySource",
+    "manifestHash",
+    "contracts"
+  ],
+  "properties": {
+    "environment": {
+      "enum": ["local", "polygon-fork", "polygon-mainnet"]
+    },
+    "chainId": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "reviewedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "registrySource": {
+      "type": "string",
+      "format": "uri"
+    },
+    "manifestHash": {
+      "type": "string",
+      "pattern": "^0x[0-9a-f]{64}$"
+    },
+    "contracts": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/contract"
+      }
+    }
+  },
+  "$defs": {
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["address", "kind"],
+      "properties": {
+        "address": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]{40}$"
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

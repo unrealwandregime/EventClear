@@ -138,7 +138,9 @@ class ApiTests(unittest.TestCase):
         response = self.client.post("/api/v1/quotes", json=payload)
         self.assertEqual(response.status_code, 200, response.text)
         body = response.json()
-        self.assertEqual(body["quote"]["advanceAmount"], "93500000")
+        self.assertEqual(body["quote"]["grossAdvance"], "95000000")
+        self.assertEqual(body["quote"]["originationFee"], "475000")
+        self.assertEqual(body["quote"]["netAdvance"], "94525000")
         self.assertTrue(body["signature"].startswith("0x"))
         self.assertEqual(len(body["quote"]["bundleHash"]), 66)
 

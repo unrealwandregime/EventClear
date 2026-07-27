@@ -14,6 +14,7 @@ import {ERC1155Holder} from "@openzeppelin/contracts/token/ERC1155/utils/ERC1155
 import {EventClearClaims} from "./EventClearClaims.sol";
 import {EventClearFundingPool} from "./EventClearFundingPool.sol";
 import {RelationshipRegistry} from "./RelationshipRegistry.sol";
+import {RiskPolicy} from "./RiskPolicy.sol";
 
 interface IRedemptionAdapter {
     function areResolved(bytes32[] calldata conditionIds) external view returns (bool);
@@ -25,9 +26,9 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
     using SafeERC20 for IERC20;
 
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
-    bytes32 public constant RISK_ADMIN_ROLE = keccak256("RISK_ADMIN_ROLE");
+    uint256 public constant RESIDUAL_SHARE_SUPPLY = 1e18;
     bytes32 private constant QUOTE_TYPEHASH = keccak256(
-        "FinancingQuote(address accountWallet,bytes32 bundleHash,bytes32 relationshipDefinitionHash,bytes32 solverProofHash,uint256 guaranteedFloor,uint256 principalAmount,uint256 advanceAmount,uint256 originationFee,uint256 expiry,uint256 nonce,uint256 chainId,address vault)"
+        "FinancingQuote(address borrower,address positionWallet,bytes32 bundleHash,bytes32 relationshipDefinitionHash,bytes32 solverArtifactHash,uint256 guaranteedFloor,uint256 principalAmount,uint256 grossAdvance,uint256 originationFee,uint256 netAdvance,uint256 expiry,uint256 nonce,uint256 chainId,address vault,address fundingPool,address collateralToken)"
     );
 
     enum BundleStatus {
@@ -40,26 +41,32 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
     }
 
     struct FinancingQuote {
-        address accountWallet;
+        address borrower;
+        address positionWallet;
         bytes32 bundleHash;
         bytes32 relationshipDefinitionHash;
-        bytes32 solverProofHash;
+        bytes32 solverArtifactHash;
         uint256 guaranteedFloor;
         uint256 principalAmount;
-        uint256 advanceAmount;
+        uint256 grossAdvance;
         uint256 originationFee;
+        uint256 netAdvance;
         uint256 expiry;
         uint256 nonce;
         uint256 chainId;
         address vault;
+        address fundingPool;
+        address collateralToken;
     }
 
     struct Bundle {
-        address accountWallet;
+        address borrower;
+        address positionWallet;
         bytes32 relationshipDefinitionHash;
-        bytes32 solverProofHash;
+        bytes32 solverArtifactHash;
         uint256 principalAmount;
-        uint256 advanceAmount;
+        uint256 grossAdvance;
+        uint256 netAdvance;
         uint256 settlementProceeds;
         uint256 principalAllocation;
         uint256 residualAllocation;
@@ -74,7 +81,7 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
     EventClearClaims public immutable claims;
     EventClearFundingPool public immutable fundingPool;
     IRedemptionAdapter public immutable adapter;
-    address public riskSigner;
+    RiskPolicy public immutable riskPolicy;
     bool public originationsPaused;
     uint256 public nextBundleId = 1;
 
@@ -93,9 +100,9 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
     error ConditionsUnresolved();
     error NothingToClaim();
 
-    event BundleOpened(uint256 indexed bundleId, address indexed accountWallet, bytes32 indexed relationshipHash);
+    event BundleOpened(uint256 indexed bundleId, address indexed positionWallet, bytes32 indexed relationshipHash);
     event PositionsEscrowed(uint256 indexed bundleId, uint256[] tokenIds, uint256[] amounts);
-    event AdvanceFunded(uint256 indexed bundleId, uint256 amount);
+    event AdvanceFunded(uint256 indexed bundleId, uint256 grossAdvance, uint256 originationFee, uint256 netAdvance);
     event ClaimsMinted(uint256 indexed bundleId, uint256 principalSupply, uint256 residualSupply);
     event SettlementStarted(uint256 indexed bundleId);
     event PositionsRedeemed(uint256 indexed bundleId, uint256 proceeds);
@@ -111,7 +118,7 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
         EventClearClaims claims_,
         EventClearFundingPool fundingPool_,
         IRedemptionAdapter adapter_,
-        address signer,
+        RiskPolicy riskPolicy_,
         address admin
     ) EIP712("EventClear", "1") {
         collateral = collateral_;
@@ -120,10 +127,9 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
         claims = claims_;
         fundingPool = fundingPool_;
         adapter = adapter_;
-        riskSigner = signer;
+        riskPolicy = riskPolicy_;
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(PAUSER_ROLE, admin);
-        _grantRole(RISK_ADMIN_ROLE, admin);
     }
 
     function hashLegs(bytes32[] calldata conditionIds, uint256[] calldata tokenIds, uint256[] calldata amounts)
@@ -137,57 +143,118 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
         return keccak256(abi.encode(conditionIds, tokenIds, amounts));
     }
 
+    function hashBundle(
+        bytes32[] calldata conditionIds,
+        uint256[] calldata tokenIds,
+        uint8[] calldata outcomes,
+        uint256[] calldata amounts,
+        uint32 relationshipVersion,
+        address positionWallet,
+        address borrower
+    ) public view returns (bytes32) {
+        if (
+            conditionIds.length == 0 || conditionIds.length != tokenIds.length || tokenIds.length != outcomes.length
+                || outcomes.length != amounts.length
+        ) revert InvalidQuote();
+        for (uint256 i; i < outcomes.length; ++i) {
+            if (outcomes[i] > 1 || amounts[i] == 0) revert InvalidQuote();
+        }
+        return keccak256(
+            abi.encode(
+                conditionIds,
+                tokenIds,
+                outcomes,
+                amounts,
+                address(adapter),
+                relationshipVersion,
+                positionWallet,
+                borrower,
+                block.chainid,
+                address(this)
+            )
+        );
+    }
+
     function openBundle(
         FinancingQuote calldata quote,
         bytes calldata signature,
         bytes32[] calldata conditionIds,
         uint256[] calldata tokenIds,
-        uint256[] calldata amounts
+        uint8[] calldata outcomes,
+        uint256[] calldata amounts,
+        uint32 relationshipVersion
     ) external nonReentrant whenNotPaused returns (uint256 bundleId) {
         if (originationsPaused) revert OriginationPaused();
-        if (quote.accountWallet != msg.sender || quote.vault != address(this) || quote.chainId != block.chainid) {
+        if (
+            quote.borrower != msg.sender || quote.positionWallet == address(0) || quote.vault != address(this)
+                || quote.fundingPool != address(fundingPool) || quote.collateralToken != address(collateral)
+                || quote.chainId != block.chainid
+        ) {
             revert InvalidQuote();
         }
         if (quote.expiry < block.timestamp) revert QuoteExpired();
         if (
-            quote.principalAmount != quote.guaranteedFloor
-                || quote.advanceAmount + quote.originationFee > quote.principalAmount
+            quote.principalAmount != quote.guaranteedFloor || quote.grossAdvance > quote.guaranteedFloor
+                || quote.netAdvance + quote.originationFee != quote.grossAdvance
         ) {
             revert InvalidQuote();
         }
-        if (quote.bundleHash != hashLegs(conditionIds, tokenIds, amounts)) revert InvalidQuote();
+        if (
+            quote.bundleHash
+                != hashBundle(
+                    conditionIds, tokenIds, outcomes, amounts, relationshipVersion, quote.positionWallet, quote.borrower
+                )
+        ) revert InvalidQuote();
         if (!registry.isActive(quote.relationshipDefinitionHash)) revert RelationshipInactive();
-        bytes32 quoteKey = keccak256(abi.encode(quote.accountWallet, quote.nonce));
+        if (registry.versionOf(quote.relationshipDefinitionHash) != relationshipVersion) revert InvalidQuote();
+        bytes32 quoteKey = keccak256(abi.encode(quote.borrower, quote.nonce));
         if (quoteUsed[quoteKey]) revert QuoteAlreadyUsed();
         bytes32 digest = _hashTypedDataV4(
             keccak256(
                 abi.encode(
                     QUOTE_TYPEHASH,
-                    quote.accountWallet,
+                    quote.borrower,
+                    quote.positionWallet,
                     quote.bundleHash,
                     quote.relationshipDefinitionHash,
-                    quote.solverProofHash,
+                    quote.solverArtifactHash,
                     quote.guaranteedFloor,
                     quote.principalAmount,
-                    quote.advanceAmount,
+                    quote.grossAdvance,
                     quote.originationFee,
+                    quote.netAdvance,
                     quote.expiry,
                     quote.nonce,
                     quote.chainId,
-                    quote.vault
+                    quote.vault,
+                    quote.fundingPool,
+                    quote.collateralToken
                 )
             )
         );
-        if (ECDSA.recover(digest, signature) != riskSigner) revert InvalidQuote();
+        if (ECDSA.recover(digest, signature) != riskPolicy.quoteSigner()) revert InvalidQuote();
         quoteUsed[quoteKey] = true;
+        riskPolicy.validateAndConsume(
+            quote.positionWallet,
+            quote.relationshipDefinitionHash,
+            conditionIds,
+            riskPolicy.CRYPTO_THRESHOLD_V1(),
+            address(adapter),
+            address(collateral),
+            quote.guaranteedFloor,
+            quote.grossAdvance,
+            quote.expiry
+        );
 
         bundleId = nextBundleId++;
         bundles[bundleId] = Bundle({
-            accountWallet: msg.sender,
+            borrower: quote.borrower,
+            positionWallet: quote.positionWallet,
             relationshipDefinitionHash: quote.relationshipDefinitionHash,
-            solverProofHash: quote.solverProofHash,
+            solverArtifactHash: quote.solverArtifactHash,
             principalAmount: quote.principalAmount,
-            advanceAmount: quote.advanceAmount,
+            grossAdvance: quote.grossAdvance,
+            netAdvance: quote.netAdvance,
             settlementProceeds: 0,
             principalAllocation: 0,
             residualAllocation: 0,
@@ -199,17 +266,17 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
         _tokenIds[bundleId] = tokenIds;
         _amounts[bundleId] = amounts;
 
-        positions.safeBatchTransferFrom(msg.sender, address(this), tokenIds, amounts, "");
-        fundingPool.fundAdvance(bundleId, msg.sender, quote.advanceAmount, quote.originationFee);
+        positions.safeBatchTransferFrom(quote.positionWallet, address(this), tokenIds, amounts, "");
+        fundingPool.fundAdvance(bundleId, quote.borrower, quote.grossAdvance, quote.originationFee);
         claims.mint(address(fundingPool), bundleId, claims.PRINCIPAL(), quote.principalAmount);
-        claims.mint(msg.sender, bundleId, claims.RESIDUAL(), quote.principalAmount);
-        emit BundleOpened(bundleId, msg.sender, quote.relationshipDefinitionHash);
+        claims.mint(quote.borrower, bundleId, claims.RESIDUAL(), RESIDUAL_SHARE_SUPPLY);
+        emit BundleOpened(bundleId, quote.positionWallet, quote.relationshipDefinitionHash);
         emit PositionsEscrowed(bundleId, tokenIds, amounts);
-        emit AdvanceFunded(bundleId, quote.advanceAmount);
-        emit ClaimsMinted(bundleId, quote.principalAmount, quote.principalAmount);
+        emit AdvanceFunded(bundleId, quote.grossAdvance, quote.originationFee, quote.netAdvance);
+        emit ClaimsMinted(bundleId, quote.principalAmount, RESIDUAL_SHARE_SUPPLY);
     }
 
-    function settle(uint256 bundleId) external nonReentrant whenNotPaused {
+    function settle(uint256 bundleId) external nonReentrant {
         Bundle storage bundle = bundles[bundleId];
         if (bundle.status != BundleStatus.ACTIVE) revert InvalidBundleState();
         bytes32[] memory conditionIds = _conditionIds[bundleId];
@@ -231,6 +298,9 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
         } else {
             bundle.status = BundleStatus.SETTLED;
         }
+        riskPolicy.releaseExposure(
+            bundle.positionWallet, bundle.relationshipDefinitionHash, _conditionIds[bundleId], bundle.grossAdvance
+        );
         emit BundleSettled(bundleId, bundle.principalAllocation, bundle.residualAllocation);
     }
 
@@ -239,10 +309,14 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
         if (bundle.status != BundleStatus.SETTLED && bundle.status != BundleStatus.SHORTFALL) {
             revert InvalidBundleState();
         }
-        uint256 payout = amount * bundle.principalAllocation / bundle.principalAmount;
+        uint256 claimId = claims.claimId(bundleId, claims.PRINCIPAL());
+        uint256 remainingSupply = claims.totalSupply(claimId);
+        uint256 payout = amount == remainingSupply
+            ? bundle.principalAllocation - bundle.principalClaimed
+            : amount * bundle.principalAllocation / bundle.principalAmount;
         if (amount == 0 || payout == 0) revert NothingToClaim();
         bundle.principalClaimed += payout;
-        claims.burn(msg.sender, claims.claimId(bundleId, claims.PRINCIPAL()), amount);
+        claims.burn(msg.sender, claimId, amount);
         collateral.safeTransfer(msg.sender, payout);
         emit PrincipalClaimed(bundleId, msg.sender, amount, payout);
     }
@@ -252,10 +326,14 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
         if (bundle.status != BundleStatus.SETTLED && bundle.status != BundleStatus.SHORTFALL) {
             revert InvalidBundleState();
         }
-        uint256 payout = amount * bundle.residualAllocation / bundle.principalAmount;
+        uint256 claimId = claims.claimId(bundleId, claims.RESIDUAL());
+        uint256 remainingSupply = claims.totalSupply(claimId);
+        uint256 payout = amount == remainingSupply
+            ? bundle.residualAllocation - bundle.residualClaimed
+            : amount * bundle.residualAllocation / RESIDUAL_SHARE_SUPPLY;
         if (amount == 0) revert NothingToClaim();
         bundle.residualClaimed += payout;
-        claims.burn(msg.sender, claims.claimId(bundleId, claims.RESIDUAL()), amount);
+        claims.burn(msg.sender, claimId, amount);
         if (payout != 0) collateral.safeTransfer(msg.sender, payout);
         emit ResidualClaimed(bundleId, msg.sender, amount, payout);
     }
@@ -270,11 +348,6 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
 
     function unpause() external onlyRole(PAUSER_ROLE) {
         _unpause();
-    }
-
-    function setRiskSigner(address signer) external onlyRole(RISK_ADMIN_ROLE) {
-        if (signer == address(0)) revert InvalidQuote();
-        riskSigner = signer;
     }
 
     function getBundleLegs(uint256 bundleId)

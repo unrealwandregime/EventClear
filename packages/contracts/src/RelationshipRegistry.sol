@@ -70,4 +70,8 @@ contract RelationshipRegistry is AccessControl {
         return item.status == Status.APPROVED && block.timestamp >= item.validFrom
             && (item.validUntil == 0 || block.timestamp <= item.validUntil);
     }
+
+    function versionOf(bytes32 definitionHash) external view returns (uint32) {
+        return definitions[definitionHash].version;
+    }
 }

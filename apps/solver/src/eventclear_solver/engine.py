@@ -9,7 +9,7 @@ from z3 import Int, Optimize, Or, sat
 
 from .models import ProofArtifact, SolverRequest, SolverResult, TerminalWorld
 
-SOLVER_VERSION = "eventclear-z3-enumerator/0.1.0"
+SOLVER_VERSION = "eventclear-crypto-threshold-z3/1.0.0"
 ZERO_HASH = "0x" + "00" * 32
 
 
@@ -73,18 +73,28 @@ def solve(request: SolverRequest, *, include_all_worlds: bool = True, timestamp:
             )
     if not worlds:
         base = SolverResult(
-            isSatisfiable=False,
+            approvedDefinitionFound=not any(
+                reason in {"RELATIONSHIP_HASH_MISMATCH", "RELATIONSHIP_VERSION_MISMATCH"}
+                for reason in reasons
+            ),
+            satisfiable=False,
+            financingEligible=False,
             guaranteedFloorAtomic="0",
             maximumPayoutAtomic="0",
             validWorldCount=0,
-            minimumWorlds=[],
-            maximumWorlds=[],
-            allWorlds=[] if include_all_worlds else None,
-            proofArtifactHash=ZERO_HASH,
+            terminalWorlds=[],
+            minimumWitnessWorlds=[],
+            maximumWitnessWorlds=[],
+            inputHash=_hash(request),
             definitionHash=request.relationshipDefinitionHash,
+            artifactHash=ZERO_HASH,
             solverVersion=SOLVER_VERSION,
-            calculationTimestamp=calculated_at,
-            rejectionReasons=reasons or ["UNSATISFIABLE_CONSTRAINTS"],
+            generatedAt=calculated_at,
+            rejectionCodes=reasons or ["UNSATISFIABLE_CONSTRAINTS"],
+            rejectionExplanations=[
+                reason.replace("_", " ").replace(":", ": ")
+                for reason in (reasons or ["UNSATISFIABLE_CONSTRAINTS"])
+            ],
         )
     else:
         # Z3 proves the extrema over the reviewed terminal-world constraint set.
@@ -106,28 +116,32 @@ def solve(request: SolverRequest, *, include_all_worlds: bool = True, timestamp:
         low = low_handle.lower().as_long()
         high = high_handle.upper().as_long()
         base = SolverResult(
-            isSatisfiable=True,
+            approvedDefinitionFound=True,
+            satisfiable=True,
+            financingEligible=True,
             guaranteedFloorAtomic=str(low),
             maximumPayoutAtomic=str(high),
             validWorldCount=len(worlds),
-            minimumWorlds=[world for world in worlds if int(world.totalPayoutAtomic) == low],
-            maximumWorlds=[world for world in worlds if int(world.totalPayoutAtomic) == high],
-            allWorlds=worlds if include_all_worlds else None,
-            proofArtifactHash=ZERO_HASH,
+            terminalWorlds=worlds if include_all_worlds else [],
+            minimumWitnessWorlds=[world for world in worlds if int(world.totalPayoutAtomic) == low],
+            maximumWitnessWorlds=[world for world in worlds if int(world.totalPayoutAtomic) == high],
+            inputHash=_hash(request),
             definitionHash=request.relationshipDefinitionHash,
+            artifactHash=ZERO_HASH,
             solverVersion=SOLVER_VERSION,
-            calculationTimestamp=calculated_at,
-            rejectionReasons=[],
+            generatedAt=calculated_at,
+            rejectionCodes=[],
+            rejectionExplanations=[],
         )
-    payload = {"request": request.model_dump(mode="json"), "result": base.model_dump(mode="json", exclude={"proofArtifactHash"})}
-    return base.model_copy(update={"proofArtifactHash": _hash(payload)})
+    payload = {"request": request.model_dump(mode="json"), "result": base.model_dump(mode="json", exclude={"artifactHash"})}
+    return base.model_copy(update={"artifactHash": _hash(payload)})
 
 
 def verify_artifact(path: str | Path) -> bool:
     artifact = ProofArtifact.model_validate_json(Path(path).read_text(encoding="utf-8"))
     reproduced = solve(
         artifact.request,
-        include_all_worlds=artifact.result.allWorlds is not None,
-        timestamp=artifact.result.calculationTimestamp,
+        include_all_worlds=bool(artifact.result.terminalWorlds),
+        timestamp=artifact.result.generatedAt,
     )
     return canonical_bytes(reproduced) == canonical_bytes(artifact.result)

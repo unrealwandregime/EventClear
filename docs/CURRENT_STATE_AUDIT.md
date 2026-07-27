@@ -18,8 +18,8 @@ pool assets.
 The principal gaps are operational integration and completeness. The web
 application reads hard-coded arrays instead of the API/indexer, the API exposes
 only part of the required `/api/v1` surface, live Polymarket ingestion is absent,
-the indexer handles one event and does not implement reorg rollback, the pool is
-not ERC-4626, there is no standalone `RiskPolicy`, local orchestration lacks an
+the indexer handles one event and does not implement reorg rollback, the pool's
+ERC-4626 accounting is incomplete, there is no standalone `RiskPolicy`, local orchestration lacks an
 automatic deploy/seed/lifecycle command, and the existing fork test validates
 manifest interfaces without exercising real token escrow or redemption calldata.
 
@@ -123,7 +123,8 @@ standard-position redemption isolation.
 
 Material gaps:
 
-- Funding pool is not ERC-4626 and has no transferable pool shares.
+- Funding pool inherits ERC-4626 and has transferable shares, but fee timing,
+  realized-loss reporting and risk-policy integration are incomplete.
 - No standalone `RiskPolicy.sol`; caps are limited and distributed.
 - No per-wallet, per-market or per-relationship exposure accounting.
 - Claims expose no structured metadata.
