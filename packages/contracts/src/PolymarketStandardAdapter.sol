@@ -27,14 +27,62 @@ interface IPolymarketCollateralToken is IERC20 {
     function wrap(address asset, address to, uint256 amount, address callbackReceiver, bytes calldata data) external;
 }
 
-/// @notice Isolates each EventClear standard-market redemption before wrapping USDC.e proceeds into pUSD.
-/// @dev Mainnet pilot scope deliberately excludes negative-risk markets, whose position IDs and redemption path differ.
-contract PolymarketStandardAdapter is ERC1155Holder {
+interface IPolymarketOfficialCTFAdapter {
+    function redeemPositions(
+        address collateralToken,
+        bytes32 parentCollectionId,
+        bytes32 conditionId,
+        uint256[] calldata indexSets
+    ) external;
+}
+
+/// @dev Per-redemption isolation prevents the official adapter's whole-balance
+/// redemption semantics from crossing EventClear bundles that share a condition.
+contract ExactRedemptionEscrow is ERC1155Holder {
     using SafeERC20 for IERC20;
 
     IPolymarketConditionalTokens public immutable conditionalTokens;
+    IERC20 public immutable pUSD;
+    IPolymarketOfficialCTFAdapter public immutable officialAdapter;
+    address public immutable owner;
+    address public immutable beneficiary;
+
+    error Unauthorized();
+
+    constructor(
+        IPolymarketConditionalTokens conditionalTokens_,
+        IERC20 pUSD_,
+        IPolymarketOfficialCTFAdapter officialAdapter_,
+        address beneficiary_
+    ) {
+        conditionalTokens = conditionalTokens_;
+        pUSD = pUSD_;
+        officialAdapter = officialAdapter_;
+        owner = msg.sender;
+        beneficiary = beneficiary_;
+    }
+
+    function redeem(bytes32[] calldata conditionIds) external {
+        if (msg.sender != owner) revert Unauthorized();
+        uint256[] memory indexSets = new uint256[](2);
+        indexSets[0] = 1;
+        indexSets[1] = 2;
+        conditionalTokens.setApprovalForAll(address(officialAdapter), true);
+        for (uint256 i; i < conditionIds.length; ++i) {
+            officialAdapter.redeemPositions(address(pUSD), bytes32(0), conditionIds[i], indexSets);
+        }
+        conditionalTokens.setApprovalForAll(address(officialAdapter), false);
+        pUSD.safeTransfer(beneficiary, pUSD.balanceOf(address(this)));
+    }
+}
+
+/// @notice Isolates each EventClear standard-market redemption before wrapping USDC.e proceeds into pUSD.
+/// @dev Mainnet pilot scope deliberately excludes negative-risk markets, whose position IDs and redemption path differ.
+contract PolymarketStandardAdapter {
+    IPolymarketConditionalTokens public immutable conditionalTokens;
     IPolymarketCollateralToken public immutable pUSD;
     IERC20 public immutable usdce;
+    IPolymarketOfficialCTFAdapter public immutable officialAdapter;
 
     error InvalidConfiguration();
     error InvalidLegs();
@@ -42,14 +90,22 @@ contract PolymarketStandardAdapter is ERC1155Holder {
     error DuplicateCondition();
     error UnexpectedAdapterBalance();
 
-    constructor(IPolymarketConditionalTokens conditionalTokens_, IPolymarketCollateralToken pUSD_, IERC20 usdce_) {
-        if (address(conditionalTokens_) == address(0) || address(pUSD_) == address(0) || address(usdce_) == address(0))
-        {
+    constructor(
+        IPolymarketConditionalTokens conditionalTokens_,
+        IPolymarketCollateralToken pUSD_,
+        IERC20 usdce_,
+        IPolymarketOfficialCTFAdapter officialAdapter_
+    ) {
+        if (
+            address(conditionalTokens_) == address(0) || address(pUSD_) == address(0) || address(usdce_) == address(0)
+                || address(officialAdapter_) == address(0)
+        ) {
             revert InvalidConfiguration();
         }
         conditionalTokens = conditionalTokens_;
         pUSD = pUSD_;
         usdce = usdce_;
+        officialAdapter = officialAdapter_;
     }
 
     function areResolved(bytes32[] calldata conditionIds) external view returns (bool) {
@@ -71,23 +127,13 @@ contract PolymarketStandardAdapter is ERC1155Holder {
             }
             (uint256 yesTokenId, uint256 noTokenId) = positionIds(conditionIds[i]);
             if (tokenIds[i] != yesTokenId && tokenIds[i] != noTokenId) revert InvalidToken();
-            if (conditionalTokens.balanceOf(address(this), tokenIds[i]) != 0) revert UnexpectedAdapterBalance();
         }
 
-        conditionalTokens.safeBatchTransferFrom(msg.sender, address(this), tokenIds, amounts, "");
-        uint256 beforeUnderlying = usdce.balanceOf(address(this));
-        uint256[] memory indexSets = new uint256[](2);
-        indexSets[0] = 1;
-        indexSets[1] = 2;
+        ExactRedemptionEscrow escrow = new ExactRedemptionEscrow(conditionalTokens, pUSD, officialAdapter, msg.sender);
+        conditionalTokens.safeBatchTransferFrom(msg.sender, address(escrow), tokenIds, amounts, "");
+        escrow.redeem(conditionIds);
         for (uint256 i; i < length; ++i) {
-            conditionalTokens.redeemPositions(usdce, bytes32(0), conditionIds[i], indexSets);
-            if (conditionalTokens.balanceOf(address(this), tokenIds[i]) != 0) revert UnexpectedAdapterBalance();
-        }
-
-        uint256 proceeds = usdce.balanceOf(address(this)) - beforeUnderlying;
-        if (proceeds != 0) {
-            usdce.safeTransfer(address(pUSD), proceeds);
-            pUSD.wrap(address(usdce), msg.sender, proceeds, address(0), "");
+            if (conditionalTokens.balanceOf(address(escrow), tokenIds[i]) != 0) revert UnexpectedAdapterBalance();
         }
     }
 

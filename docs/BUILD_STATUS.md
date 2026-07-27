@@ -157,13 +157,23 @@ Completed:
 
 - Read-only deployed bytecode/interface manifest test.
 - Live manifest verification through two RPC providers on 2026-07-27.
+- Pinned fork block `90963627` and a captured Gamma standard-market fixture.
+- Exact Gamma token IDs reproduced from deployed CTF position derivation.
+- Winning position transferred into a fresh EventClear redemption escrow,
+  burned through deployed CTF, wrapped through Polymarket's authorized standard
+  collateral adapter, and received as exactly `1000000` pUSD atomic units.
+- Fork testing caught and removed an invalid direct-pUSD-wrap assumption from
+  the original custom adapter design.
+- Corrected collateral-adapter addresses against Polymarket's official
+  `ctf-exchange-v2` registry; fork and mainnet manifests verify through two RPCs.
 
 Remaining blockers:
 
-- Pinned fork block and real condition/position fixtures.
-- Real standard-token transfer into the EventClear vault.
-- Redemption-call verification against current deployed contracts.
-- `make test-fork`.
+- Extend the fork scenario through the complete EventClear vault financing
+  lifecycle rather than adapter-level escrow/redemption only.
+- Add a negative-risk read-only fixture while keeping originations disabled.
+- Execute the checked `make test-fork` wrapper in Linux CI (the underlying
+  pinned command passed on this host).
 
 Relevant commit: pending  
 Genuinely operational: **No.**

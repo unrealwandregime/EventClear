@@ -51,7 +51,10 @@ function manifestDigest(manifest: Manifest): `0x${string}` {
 }
 
 const environment = process.env.EVENTCLEAR_ENV ?? process.env.EVENTCLEAR_MODE ?? "polygon-mainnet";
-const normalizedEnvironment = environment === "polygon-mainnet" ? "polygon-mainnet" : environment;
+const normalizedEnvironment =
+  environment === "production-readonly" || environment === "production-controlled"
+    ? "polygon-mainnet"
+    : environment;
 if (!["local", "polygon-fork", "polygon-mainnet"].includes(normalizedEnvironment)) {
   fail(`Unsupported manifest environment: ${environment}`);
 }

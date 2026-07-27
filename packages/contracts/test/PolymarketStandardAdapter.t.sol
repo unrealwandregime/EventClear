@@ -5,10 +5,12 @@ import {Test} from "forge-std/Test.sol";
 import {
     PolymarketStandardAdapter,
     IPolymarketConditionalTokens,
-    IPolymarketCollateralToken
+    IPolymarketCollateralToken,
+    IPolymarketOfficialCTFAdapter
 } from "../src/PolymarketStandardAdapter.sol";
 import {MockConditionalTokens} from "../src/mocks/MockConditionalTokens.sol";
 import {MockPUSD} from "../src/mocks/MockPUSD.sol";
+import {MockOfficialCTFAdapter} from "../src/mocks/MockOfficialCTFAdapter.sol";
 
 contract PolymarketStandardAdapterTest is Test {
     uint256 constant UNIT = 1e6;
@@ -17,6 +19,7 @@ contract PolymarketStandardAdapterTest is Test {
     MockConditionalTokens ctf;
     MockPUSD pUSD;
     MockPUSD usdce;
+    MockOfficialCTFAdapter officialAdapter;
     PolymarketStandardAdapter adapter;
     bytes32 firstCondition = keccak256("standard-one");
     bytes32 secondCondition = keccak256("standard-two");
@@ -27,8 +30,14 @@ contract PolymarketStandardAdapterTest is Test {
         ctf = new MockConditionalTokens();
         pUSD = new MockPUSD();
         usdce = new MockPUSD();
-        adapter = new PolymarketStandardAdapter(
+        officialAdapter = new MockOfficialCTFAdapter(
             IPolymarketConditionalTokens(address(ctf)), IPolymarketCollateralToken(address(pUSD)), usdce
+        );
+        adapter = new PolymarketStandardAdapter(
+            IPolymarketConditionalTokens(address(ctf)),
+            IPolymarketCollateralToken(address(pUSD)),
+            usdce,
+            IPolymarketOfficialCTFAdapter(address(officialAdapter))
         );
         (firstYes,) = ctf.createStandardPositions(firstCondition, usdce);
         (, secondNo) = ctf.createStandardPositions(secondCondition, usdce);

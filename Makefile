@@ -36,7 +36,7 @@ test-e2e:
 	$(PNPM) test
 
 test-fork:
-	cd packages/contracts && forge test --match-path "test/fork/*" --fork-url "$(POLYGON_RPC_URL)"
+	cd packages/contracts && forge test --match-path "test/fork/*" --fork-url "$(POLYGON_RPC_URL)" --fork-block-number 90963627
 
 lint:
 	$(PNPM) lint

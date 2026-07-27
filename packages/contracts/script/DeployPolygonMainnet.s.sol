@@ -10,7 +10,11 @@ import {EventClearFundingPool} from "../src/EventClearFundingPool.sol";
 import {EventClearTreasury} from "../src/EventClearTreasury.sol";
 import {RelationshipRegistry} from "../src/RelationshipRegistry.sol";
 import {RiskPolicy} from "../src/RiskPolicy.sol";
-import {IPolymarketConditionalTokens, IPolymarketCollateralToken} from "../src/PolymarketStandardAdapter.sol";
+import {
+    IPolymarketConditionalTokens,
+    IPolymarketCollateralToken,
+    IPolymarketOfficialCTFAdapter
+} from "../src/PolymarketStandardAdapter.sol";
 import {PolymarketStandardCTFAdapter} from "../src/PolymarketStandardCTFAdapter.sol";
 
 /// @notice Production deployment with transient deployer privileges removed in the same broadcast.
@@ -27,9 +31,11 @@ contract DeployPolygonMainnet is Script {
         address pUSDAddress = vm.parseJsonAddress(manifest, ".contracts.pUSD.address");
         address usdceAddress = vm.parseJsonAddress(manifest, ".contracts.usdce.address");
         address ctfAddress = vm.parseJsonAddress(manifest, ".contracts.conditionalTokens.address");
+        address officialAdapterAddress = vm.parseJsonAddress(manifest, ".contracts.ctfCollateralAdapter.address");
         _requireCode(pUSDAddress);
         _requireCode(usdceAddress);
         _requireCode(ctfAddress);
+        _requireCode(officialAdapterAddress);
 
         uint256 deployerKey = vm.envUint("MAINNET_DEPLOYER_PRIVATE_KEY");
         address deployer = vm.addr(deployerKey);
@@ -56,7 +62,10 @@ contract DeployPolygonMainnet is Script {
         RelationshipRegistry registry = new RelationshipRegistry(deployer);
         EventClearClaims claims = new EventClearClaims(deployer);
         PolymarketStandardCTFAdapter adapter = new PolymarketStandardCTFAdapter(
-            IPolymarketConditionalTokens(ctfAddress), IPolymarketCollateralToken(pUSDAddress), IERC20(usdceAddress)
+            IPolymarketConditionalTokens(ctfAddress),
+            IPolymarketCollateralToken(pUSDAddress),
+            IERC20(usdceAddress),
+            IPolymarketOfficialCTFAdapter(officialAdapterAddress)
         );
         RiskPolicy riskPolicy = new RiskPolicy(deployer, riskSigner);
         riskPolicy.setAdapterAllowed(address(adapter), true);

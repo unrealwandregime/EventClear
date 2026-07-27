@@ -144,6 +144,35 @@ class ApiTests(unittest.TestCase):
         self.assertTrue(body["signature"].startswith("0x"))
         self.assertEqual(len(body["quote"]["bundleHash"]), 66)
 
+    def test_quote_ignores_client_supplied_payout_worlds(self):
+        definition_hash = "0x" + "ab" * 32
+        payload = {
+            "accountWallet": "0x0000000000000000000000000000000000000001",
+            "solverRequest": {
+                "relationshipDefinitionHash": definition_hash,
+                "definitionVersion": 999,
+                "legs": [
+                    {"conditionId": "0x" + "11" * 32, "tokenId": "1", "outcome": "YES", "amountAtomic": "100000000"},
+                    {"conditionId": "0x" + "22" * 32, "tokenId": "4", "outcome": "NO", "amountAtomic": "100000000"},
+                ],
+                "payoutModel": {
+                    "definitionHash": definition_hash,
+                    "definitionVersion": 999,
+                    "allowedTokens": {
+                        "1": {"conditionId": "0x" + "11" * 32, "outcome": "YES"},
+                        "4": {"conditionId": "0x" + "22" * 32, "outcome": "NO"},
+                    },
+                    "validWorlds": [
+                        {"worldId": "fabricated", "assignments": {}, "payoutsAtomicByToken": {"1": "9000000", "4": "9000000"}}
+                    ],
+                },
+            },
+        }
+        response = self.client.post("/api/v1/quotes", json=payload)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["quote"]["guaranteedFloor"], "100000000")
+        self.assertEqual(response.json()["requestPayload"]["solverRequest"]["definitionVersion"], 3)
+
     def test_transaction_preparation_returns_executable_calldata(self):
         receiver = "0x0000000000000000000000000000000000000001"
         deposit = self.client.post(

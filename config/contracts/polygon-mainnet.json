@@ -3,7 +3,7 @@
   "chainId": 137,
   "reviewedAt": "2026-07-27T00:00:00Z",
   "registrySource": "https://docs.polymarket.com/resources/contracts",
-  "manifestHash": "0x36eb6b16c6f202f2ed5554ae90afb3d4797e7cc0167c1752ccb93e1a0552fd42",
+  "manifestHash": "0x9b97e43c46a21deba0194df9d57b0aeb31d2f0a1823b20cd7de6012aed9ce488",
   "contracts": {
     "conditionalTokens": {
       "address": "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045",
@@ -22,11 +22,11 @@
       "kind": "ERC20"
     },
     "ctfCollateralAdapter": {
-      "address": "0xAdA100Db00Ca00073811820692005400218FcE1f",
+      "address": "0xADa100874d00e3331D00F2007a9c336a65009718",
       "kind": "standard-adapter"
     },
     "negativeRiskCollateralAdapter": {
-      "address": "0xadA2005600Dec949baf300f4C6120000bDB6eAab",
+      "address": "0xAdA200001000ef00D07553cEE7006808F895c6F1",
       "kind": "negative-risk-adapter"
     },
     "negativeRiskAdapter": {

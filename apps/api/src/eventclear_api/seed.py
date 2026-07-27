@@ -5,6 +5,20 @@ from copy import deepcopy
 UNIT = 1_000_000
 HASH = "0x" + "ab" * 32
 
+BTC_SOLVER_DEFINITION = {
+    "definitionHash": HASH,
+    "definitionVersion": 3,
+    "allowedTokens": {
+        "1": {"conditionId": "0x" + "11" * 32, "outcome": "YES"},
+        "4": {"conditionId": "0x" + "22" * 32, "outcome": "NO"},
+    },
+    "validWorlds": [
+        {"worldId": "below", "assignments": {"band": 0}, "payoutsAtomicByToken": {"1": "0", "4": "1000000"}},
+        {"worldId": "middle", "assignments": {"band": 1}, "payoutsAtomicByToken": {"1": "1000000", "4": "1000000"}},
+        {"worldId": "above", "assignments": {"band": 2}, "payoutsAtomicByToken": {"1": "1000000", "4": "0"}},
+    ],
+}
+
 MARKETS = [
     {"conditionId": "btc-100", "question": "Will BTC official index close above $100,000?", "asset": "BTC", "threshold": 100000, "observation": "CLOSE_AT", "endDate": "2026-12-31T23:59:59Z", "tokenIds": ["btc-100-y", "btc-100-n"], "active": True},
     {"conditionId": "btc-150", "question": "Will BTC official index close above $150,000?", "asset": "BTC", "threshold": 150000, "observation": "CLOSE_AT", "endDate": "2026-12-31T23:59:59Z", "tokenIds": ["btc-150-y", "btc-150-n"], "active": True},
@@ -22,6 +36,7 @@ RELATIONSHIPS = [{
     "tokenIds": ["btc-100-y", "btc-150-n"],
     "resolutionRulesHash": "0x" + "cd" * 32,
     "canonicalDefinitionHash": HASH,
+    "solverDefinition": BTC_SOLVER_DEFINITION,
     "approvedBy": "local-reviewer",
     "approvedAt": "2026-07-27T00:00:00Z",
     "validFrom": "2026-07-27T00:00:00Z",

@@ -11,6 +11,7 @@ via_ir = true
 fuzz.runs = 512
 invariant.runs = 128
 invariant.depth = 64
+fs_permissions = [{ access = "read", path = "../../config" }]
 
 [fmt]
 line_length = 120

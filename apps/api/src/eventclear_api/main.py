@@ -4,6 +4,7 @@ import time
 import uuid
 import secrets
 import hmac
+from copy import deepcopy
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -358,8 +359,18 @@ def quote(payload: dict):
     )
     if not relationship or relationship["status"] != "APPROVED":
         raise HTTPException(422, detail={"code": "RELATIONSHIP_NOT_ACTIVE"})
+    trusted_definition = relationship.get("solverDefinition")
+    if not trusted_definition:
+        raise HTTPException(422, detail={"code": "REVIEWED_SOLVER_DEFINITION_MISSING"})
+    trusted_payload = deepcopy(payload)
+    trusted_payload["solverRequest"] = {
+        **trusted_payload.get("solverRequest", {}),
+        "relationshipDefinitionHash": relationship["canonicalDefinitionHash"],
+        "definitionVersion": relationship["version"],
+        "payoutModel": trusted_definition,
+    }
     try:
-        result = issue_quote(payload, settings, store.allocate_quote_nonce())
+        result = issue_quote(trusted_payload, settings, store.allocate_quote_nonce())
     except (ValueError, TypeError) as exc:
         raise HTTPException(422, detail={"code": "QUOTE_REJECTED", "reason": str(exc)}) from exc
     store.save_quote(result["id"], result)
@@ -481,6 +492,31 @@ def create_relationship(payload: dict, actor: str = Depends(admin)):
 def relationship_action(relationship_id: str, action: str, actor: str = Depends(admin)):
     if action not in {"extract", "review", "approve", "suspend", "retire"}:
         raise HTTPException(404, detail={"code": "ACTION_NOT_FOUND"})
+    current = store.get_relationship(relationship_id)
+    if current is None:
+        raise HTTPException(404, detail={"code": "RELATIONSHIP_NOT_FOUND"})
+    allowed_transitions = {
+        "extract": {"DRAFT"},
+        "review": {"EXTRACTED"},
+        "approve": {"REVIEW_REQUIRED", "SUSPENDED"},
+        "suspend": {"APPROVED"},
+        "retire": {"APPROVED", "SUSPENDED"},
+    }
+    if current["status"] not in allowed_transitions[action]:
+        raise HTTPException(409, detail={"code": "INVALID_RELATIONSHIP_TRANSITION"})
+    if action == "approve":
+        required = {
+            "canonicalDefinitionHash",
+            "resolutionRulesHash",
+            "solverDefinition",
+            "marketConditionIds",
+            "tokenIds",
+            "version",
+        }
+        if any(not current.get(field) for field in required):
+            raise HTTPException(422, detail={"code": "INCOMPLETE_REVIEWED_DEFINITION"})
+        if current["solverDefinition"].get("definitionHash") != current["canonicalDefinitionHash"]:
+            raise HTTPException(422, detail={"code": "SOLVER_DEFINITION_HASH_MISMATCH"})
     item = store.set_relationship_status(
         relationship_id,
         {
@@ -491,8 +527,6 @@ def relationship_action(relationship_id: str, action: str, actor: str = Depends(
             "retire": "RETIRED",
         }[action],
     )
-    if item is None:
-        raise HTTPException(404, detail={"code": "RELATIONSHIP_NOT_FOUND"})
     store.append_audit_log({"actor": actor, "action": f"RELATIONSHIP_{action.upper()}", "target": relationship_id})
     return item
 

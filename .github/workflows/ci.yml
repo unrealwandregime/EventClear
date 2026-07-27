@@ -66,4 +66,4 @@ jobs:
       - uses: foundry-rs/foundry-toolchain@v1
       - working-directory: packages/contracts
         env: { POLYGON_RPC_URL: "${{ secrets.POLYGON_RPC_URL }}" }
-        run: forge test --match-path "test/fork/*" --fork-url "$POLYGON_RPC_URL"
+        run: forge test --match-path "test/fork/*" --fork-url "$POLYGON_RPC_URL" --fork-block-number 90963627
