@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-27  
 Target release: EventClear v1 controlled, allowlisted production beta  
-Current source baseline: `054a2195332aa356f731c617c78640aa92dc9813`
+Current source baseline: `b7e6bdad525dd399a2b89661757d0cec13076804`
 
 This is the resumable source of truth. A milestone is operational only when its
 acceptance commands and required behavior have been executed.
@@ -137,6 +137,13 @@ Additional completed work:
 
 - Validated Gamma market and Data API position clients with bounded retries,
   timeouts, schema filtering and exact decimal-to-atomic conversion.
+- Validated public CLOB orderbook and price-history ingestion against a live
+  active token, including exact decimal bounds and monotonic history checks.
+- Persisted orderbook observations in the API store and enforced the configured
+  freshness window before any non-local quote; CLOB failure is tolerated only
+  when a durable cached observation is still fresh.
+- Kept the exchange book-mutation timestamp as source-lag telemetry rather than
+  incorrectly treating an unchanged but freshly fetched book as stale.
 - Polygon RPC failover wallet-code detection and explicit EOA versus unverified
   contract-wallet capabilities.
 - Non-local API paths fail closed when reviewed/indexed state is unavailable;
@@ -144,12 +151,11 @@ Additional completed work:
 
 Remaining blockers:
 
-- CLOB orderbook and price-history ingestion.
-- Persistent cache/freshness enforcement and real reviewed relationship
-  population.
+- Real reviewed relationship population.
 - End-to-end live API verification against production infrastructure.
 
-Relevant commit: `ba562d35bb4d0c736c1e2b77dc425e6ebcc335ff`
+Relevant commits: `ba562d35bb4d0c736c1e2b77dc425e6ebcc335ff`,
+`b7e6bdad525dd399a2b89661757d0cec13076804`
 
 Genuinely operational: **No.**
 

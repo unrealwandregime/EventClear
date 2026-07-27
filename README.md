@@ -96,6 +96,8 @@ Only the canonical definition and rule-document hashes are stored onchain; full 
 
 ```bash
 curl http://localhost:8000/api/v1/markets
+curl http://localhost:8000/api/v1/markets/CONDITION_ID/snapshots
+curl "http://localhost:8000/api/v1/tokens/TOKEN_ID/history?interval=1d&fidelity=60"
 curl http://localhost:8000/api/v1/wallets/0x0000000000000000000000000000000000000001/eligible-bundles
 curl http://localhost:8000/api/v1/relationships
 curl http://localhost:8000/api/v1/pool
@@ -105,7 +107,7 @@ curl http://localhost:8000/api/v1/pool
 
 ## Polymarket integration
 
-The TypeScript gateway uses the current unified `@polymarket/client` for typed market discovery and realtime subscriptions. It reconnects with capped exponential backoff, marks disconnect events stale, and discards out-of-order local timestamps. Viem handles EVM reads and manifest verification. The checked-in Polygon registry is sourced only from the official Polymarket contract page and includes current pUSD/CTF/adapters/exchanges/UMA/PositionManager/combo modules.
+The TypeScript gateway uses the current unified `@polymarket/client` for typed market discovery and realtime subscriptions. It reconnects with capped exponential backoff, marks disconnect events stale, and discards out-of-order local timestamps. The API validates live public CLOB orderbooks and price history, stores book snapshots durably, and refuses execution when neither CLOB nor a cache observation inside `MARKET_FRESHNESS_SECONDS` is available. Exchange mutation timestamps are retained as source-lag telemetry and are not confused with HTTP observation freshness. Viem handles EVM reads and manifest verification. The checked-in Polygon registry is sourced only from the official Polymarket contract page and includes current pUSD/CTF/adapters/exchanges/UMA/PositionManager/combo modules.
 
 No user private key is requested or stored. EOA, Deposit Wallet, Safe, and Proxy support must route through the official secure-client signer path; unsupported account calls fall back to a documented user-signed EOA transaction.
 
