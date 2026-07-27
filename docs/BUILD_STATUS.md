@@ -190,14 +190,17 @@ Genuinely operational: **No.**
 
 Completed:
 
-- Public Sites frontend deployment.
+- Public Sites frontend deployment with anonymous HTTP 200 verification.
 - Polygon dependency manifest and guarded production configuration.
+- Same-origin read-only edge endpoints for live Gamma markets and Polymarket
+  Data API wallet positions; exact decimal conversion and no signing secrets.
+- Empty/unavailable EventClear protocol state is explicit until verified
+  contracts and indexed data exist; it is never replaced with seed metrics.
 
 Remaining blockers:
 
-- Live backend and scanner.
-- Production state free of mock records.
 - Relationship review database and live solver analysis.
+- Durable production indexer/database and deployed EventClear contracts.
 
 Relevant commit: pending  
 Genuinely operational: **No.**
