@@ -90,6 +90,7 @@ class MemoryStore:
             {"tokenId": "residual-418", "bundleId": "EC-00418", "claimType": "RESIDUAL", "supplyAtomic": str(10**18)},
         ]
         self.protocol_events: list[dict] = []
+        self.market_snapshots: dict[str, dict] = {}
         self.risk_policy = {"advanceRatioBps": 9500, "originationFeeBps": 50, "utilizationCapBps": 8000, "originationsPaused": False}
         self.audit_logs: list[dict] = []
         self.siwe_nonces: dict[str, float] = {}
@@ -125,6 +126,13 @@ class MemoryStore:
     def get_market(self, condition_id: str) -> dict | None:
         item = next((item for item in self.markets if item["conditionId"] == condition_id), None)
         return deepcopy(item) if item else None
+
+    def save_market_snapshot(self, token_id: str, value: dict) -> None:
+        self.market_snapshots[token_id] = deepcopy(value)
+
+    def get_market_snapshot(self, token_id: str) -> dict | None:
+        value = self.market_snapshots.get(token_id)
+        return deepcopy(value) if value else None
 
     def list_relationships(self) -> list[dict]:
         return deepcopy(self.relationships)

@@ -54,6 +54,8 @@ class Settings:
     contract_manifest_path: str = os.getenv("CONTRACT_MANIFEST_PATH", "")
     gamma_api_url: str = os.getenv("POLYMARKET_GAMMA_URL", "https://gamma-api.polymarket.com")
     data_api_url: str = os.getenv("POLYMARKET_DATA_URL", "https://data-api.polymarket.com")
+    clob_api_url: str = os.getenv("POLYMARKET_CLOB_URL", "https://clob.polymarket.com")
+    market_freshness_seconds: int = int(os.getenv("MARKET_FRESHNESS_SECONDS", "30"))
     polygon_rpc_urls_raw: str = os.getenv("POLYGON_RPC_URLS", "")
 
     @property
@@ -119,6 +121,8 @@ class Settings:
             raise RuntimeError("INVALID_ADVANCE_RATIO")
         if not 0 <= self.origination_fee_bps < 10_000:
             raise RuntimeError("INVALID_ORIGINATION_FEE")
+        if not 1 <= self.market_freshness_seconds <= 300:
+            raise RuntimeError("INVALID_MARKET_FRESHNESS")
         if self.store_backend == "postgres" and not self.database_url:
             raise RuntimeError("DATABASE_URL_REQUIRED")
         if self.normalized_mode not in {"local", "test"} and self.store_backend != "postgres":

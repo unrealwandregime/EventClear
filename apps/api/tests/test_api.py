@@ -1,10 +1,13 @@
 import os
+import asyncio
+import time
 import unittest
 from datetime import UTC, datetime
+from unittest.mock import AsyncMock, patch
 
 os.environ["EVENTCLEAR_MODE"] = "local"
 from fastapi.testclient import TestClient
-from eventclear_api.main import app, store
+from eventclear_api.main import app, polymarket, require_fresh_books, store
 from eventclear_api.settings import Settings
 from eventclear_api.signer import _recoverable_signature
 from eth_account import Account
@@ -199,6 +202,26 @@ class ApiTests(unittest.TestCase):
         self.assertTrue(body["mainnetExecution"])
         self.assertIn("fundingPoolAddress", body)
         self.assertNotIn("adminApiToken", body)
+
+    def test_fresh_persistent_book_cache_survives_temporary_clob_failure(self):
+        token_id = "123"
+        store.save_market_snapshot(
+            token_id,
+            {
+                "tokenId": token_id,
+                "observedAt": time.time(),
+                "stale": False,
+                "source": "clob-live",
+            },
+        )
+        with patch.object(
+            polymarket,
+            "order_book",
+            AsyncMock(side_effect=RuntimeError("POLYMARKET_READ_UNAVAILABLE")),
+        ):
+            snapshots = asyncio.run(require_fresh_books([token_id]))
+        self.assertEqual(snapshots[0]["source"], "clob-persistent-cache")
+        self.assertFalse(snapshots[0]["stale"])
 
 
 if __name__ == "__main__":

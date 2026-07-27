@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
 import secrets
@@ -34,7 +35,9 @@ redis_client = redis_from_url(settings.redis_url, decode_responses=True) if sett
 polymarket = PolymarketReadGateway(
     settings.gamma_api_url,
     settings.data_api_url,
+    settings.clob_api_url,
     settings.polygon_rpc_urls,
+    freshness_seconds=settings.market_freshness_seconds,
 )
 REQUESTS = Counter("eventclear_api_requests_total", "API requests", ["method", "path", "status"])
 LATENCY = Histogram("eventclear_api_latency_seconds", "API request latency", ["path"])
@@ -251,8 +254,59 @@ async def market_rules(condition_id: str):
 
 @app.get("/api/v1/markets/{condition_id}/snapshots")
 async def market_snapshots(condition_id: str):
-    await market(condition_id)
-    return {"data": [], "conditionId": condition_id, "source": "indexed"}
+    item = await market(condition_id)
+    token_ids = [str(token_id) for token_id in item.get("tokenIds", [])]
+    if settings.normalized_mode in {"local", "test"}:
+        snapshots = [
+            snapshot
+            for token_id in token_ids
+            if (snapshot := store.get_market_snapshot(token_id)) is not None
+        ]
+        return {"data": snapshots, "conditionId": condition_id, "stale": False, "source": "local-cache"}
+    try:
+        snapshots = await require_fresh_books(token_ids)
+    except RuntimeError as exc:
+        raise HTTPException(503, detail={"code": str(exc)}) from exc
+    return {"data": snapshots, "conditionId": condition_id, "stale": False, "source": "clob-live"}
+
+
+@app.get("/api/v1/tokens/{token_id}/history")
+async def token_price_history(token_id: str, interval: str = "1d", fidelity: int = 5):
+    try:
+        return await polymarket.price_history(token_id, interval, fidelity)
+    except RuntimeError as exc:
+        input_errors = {
+            "POLYMARKET_TOKEN_ID_INVALID",
+            "POLYMARKET_HISTORY_INTERVAL_INVALID",
+            "POLYMARKET_HISTORY_FIDELITY_INVALID",
+        }
+        raise HTTPException(422 if str(exc) in input_errors else 503, detail={"code": str(exc)}) from exc
+
+
+async def require_fresh_books(token_ids: list[str]) -> list[dict]:
+    unique = list(dict.fromkeys(token_ids))
+    if not unique or len(unique) > 20:
+        raise RuntimeError("POLYMARKET_BOOK_TOKEN_SET_INVALID")
+    fetched = await asyncio.gather(
+        *(polymarket.order_book(token_id) for token_id in unique),
+        return_exceptions=True,
+    )
+    snapshots: list[dict] = []
+    now = time.time()
+    for token_id, result in zip(unique, fetched, strict=True):
+        if isinstance(result, Exception):
+            cached = store.get_market_snapshot(token_id)
+            if cached is None:
+                raise RuntimeError("POLYMARKET_READ_UNAVAILABLE") from result
+            cached["stale"] = now - float(cached.get("observedAt", 0)) > settings.market_freshness_seconds
+            cached["source"] = "clob-persistent-cache"
+            snapshots.append(cached)
+            continue
+        store.save_market_snapshot(result["tokenId"], result)
+        snapshots.append(result)
+    if any(snapshot["stale"] for snapshot in snapshots):
+        raise RuntimeError("POLYMARKET_MARKET_DATA_STALE")
+    return snapshots
 
 
 @app.get("/api/v1/wallets/{address}")
@@ -351,7 +405,7 @@ def verify_analysis(analysis_id: str):
 
 
 @app.post("/api/v1/quotes")
-def quote(payload: dict):
+async def quote(payload: dict):
     if settings.normalized_mode == "production-readonly":
         raise HTTPException(403, detail={"code": "PRODUCTION_READONLY"})
     relationship = store.get_relationship_by_hash(
@@ -369,6 +423,16 @@ def quote(payload: dict):
         "definitionVersion": relationship["version"],
         "payoutModel": trusted_definition,
     }
+    if settings.normalized_mode not in {"local", "test"}:
+        token_ids = [
+            str(leg.get("tokenId", ""))
+            for leg in trusted_payload.get("solverRequest", {}).get("legs", [])
+            if isinstance(leg, dict)
+        ]
+        try:
+            await require_fresh_books(token_ids)
+        except RuntimeError as exc:
+            raise HTTPException(503, detail={"code": str(exc)}) from exc
     try:
         result = issue_quote(trusted_payload, settings, store.allocate_quote_nonce())
     except (ValueError, TypeError) as exc:
@@ -386,12 +450,22 @@ def get_quote(quote_id: str):
 
 
 @app.post("/api/v1/quotes/{quote_id}/refresh")
-def refresh_quote(quote_id: str):
+async def refresh_quote(quote_id: str):
     previous = store.get_quote(quote_id)
     if previous is None:
         raise HTTPException(404, detail={"code": "QUOTE_NOT_FOUND"})
     if settings.normalized_mode == "production-readonly":
         raise HTTPException(403, detail={"code": "PRODUCTION_READONLY"})
+    if settings.normalized_mode not in {"local", "test"}:
+        token_ids = [
+            str(leg.get("tokenId", ""))
+            for leg in previous.get("requestPayload", {}).get("solverRequest", {}).get("legs", [])
+            if isinstance(leg, dict)
+        ]
+        try:
+            await require_fresh_books(token_ids)
+        except RuntimeError as exc:
+            raise HTTPException(503, detail={"code": str(exc)}) from exc
     refreshed = issue_quote(previous["requestPayload"], settings, store.allocate_quote_nonce())
     store.save_quote(refreshed["id"], refreshed)
     return refreshed

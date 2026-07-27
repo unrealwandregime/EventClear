@@ -169,6 +169,12 @@ class PostgresStore:
     def get_market(self, condition_id: str) -> dict | None:
         return self._get("market", condition_id)
 
+    def save_market_snapshot(self, token_id: str, value: dict) -> None:
+        self._put("market_snapshot", token_id, value)
+
+    def get_market_snapshot(self, token_id: str) -> dict | None:
+        return self._get("market_snapshot", token_id)
+
     def list_relationships(self) -> list[dict]:
         return self._list("relationship")
 
