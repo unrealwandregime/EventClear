@@ -47,6 +47,12 @@ export function LifecycleDrawer({
   const [status, setStatus] = useState("");
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
 
+  function setConfirmation(index: number, checked: boolean) {
+    setAccepted((current) => current.map((value, item) =>
+      item === index ? checked : value
+    ));
+  }
+
   useEffect(() => {
     if (!quote) return;
     const update = () =>
@@ -226,11 +232,8 @@ export function LifecycleDrawer({
                     <input
                       type="checkbox"
                       checked={accepted[index]}
-                      onChange={(event) =>
-                        setAccepted((current) => current.map((value, item) =>
-                          item === index ? event.target.checked : value
-                        ))
-                      }
+                      onClick={(event) => setConfirmation(index, event.currentTarget.checked)}
+                      onChange={(event) => setConfirmation(index, event.currentTarget.checked)}
                     />
                     <span>{label}</span>
                   </label>

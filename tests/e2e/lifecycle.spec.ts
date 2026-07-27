@@ -243,6 +243,24 @@ async function connectAndAnalyze(page: Page) {
   await expect(page.getByRole("dialog")).toBeVisible();
 }
 
+async function acceptExecutionConfirmations(page: Page) {
+  const dialog = page.getByRole("dialog");
+  const confirmations = [
+    "I reviewed the market resolution rules.",
+    "I understand the relationship model may be incorrect despite solver verification.",
+    "I authorize the exact listed positions to be escrowed.",
+    "I understand EventClear is unaudited.",
+  ];
+  for (const label of confirmations) {
+    const checkbox = dialog.getByRole("checkbox", { name: label });
+    await checkbox.check();
+    await expect(checkbox).toBeChecked();
+  }
+  await expect(
+    dialog.getByRole("button", { name: "Sign exact wallet authorization and continue" }),
+  ).toBeEnabled();
+}
+
 test("complete wallet, analysis, proof, quote and indexed opening lifecycle survives refresh", async ({ page }) => {
   await installWallet(page);
   await mockApi(page, { delayedIndexer: true });
@@ -253,9 +271,7 @@ test("complete wallet, analysis, proof, quote and indexed opening lifecycle surv
   await page.getByRole("button", { name: "Verify proof artifact" }).click();
   await expect(page.getByRole("status")).toContainText("reproduced successfully");
   await page.getByRole("button", { name: "Request live quote" }).click();
-  for (const checkbox of await page.getByRole("dialog").getByRole("checkbox").all()) {
-    await checkbox.check();
-  }
+  await acceptExecutionConfirmations(page);
   await page.getByRole("button", { name: "Sign exact wallet authorization and continue" }).click();
   await expect(page.getByText("indexer confirmed")).toBeVisible();
   await page.reload();
@@ -318,9 +334,7 @@ test("reverted bundle transaction is surfaced and persisted", async ({ page }) =
   await mockApi(page);
   await connectAndAnalyze(page);
   await page.getByRole("button", { name: "Request live quote" }).click();
-  for (const checkbox of await page.getByRole("dialog").getByRole("checkbox").all()) {
-    await checkbox.check();
-  }
+  await acceptExecutionConfirmations(page);
   await page.getByRole("button", { name: "Sign exact wallet authorization and continue" }).click();
   await expect(page.getByText("lifecycle failed")).toBeVisible();
   await expect(page.getByRole("status")).toContainText("TRANSACTION_REVERTED");
