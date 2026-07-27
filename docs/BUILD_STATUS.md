@@ -23,7 +23,7 @@ Baseline commit: `7d65bb3bf8fd5d714a3c8a536389ebc5f2e76b10`
 
 In progress:
 
-- Trusted quote pre-sign validation, generated threshold worlds, connected UI,
+- Generated threshold worlds, connected UI,
   indexer completion, browser E2E, CI and staging preparation.
 
 The public deployment remains `production-readonly`. No EventClear mainnet
@@ -56,6 +56,12 @@ Completed in this sprint:
   protocol fee.
 - Treasury sources remain separate for realized origination fees and the
   protocol share of additional financing return.
+- Initial quotes and refreshes now share a fail-closed pre-sign gate covering
+  relationship metadata, solver reproducibility, exact reviewed legs, live
+  ownership/resolution/market observations, pool liquidity and every configured
+  risk limit.
+- The solver timestamp checked in preflight is reused for signing, and quote
+  issuance aborts if the artifact hash changes between those operations.
 
 ## Milestone 0 — Existing repository audit
 

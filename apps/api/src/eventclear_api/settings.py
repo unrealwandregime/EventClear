@@ -40,6 +40,16 @@ class Settings:
     funding_pool_address: str = os.getenv("FUNDING_POOL_ADDRESS", "0x0000000000000000000000000000000000002000")
     collateral_token_address: str = os.getenv("COLLATERAL_TOKEN_ADDRESS", "0x0000000000000000000000000000000000003000")
     adapter_address: str = os.getenv("STANDARD_CTF_ADAPTER_ADDRESS", "0x0000000000000000000000000000000000004000")
+    conditional_tokens_address: str = os.getenv(
+        "CTF_ADDRESS", "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045"
+    )
+    risk_policy_address: str = os.getenv(
+        "RISK_POLICY_ADDRESS", "0x0000000000000000000000000000000000005000"
+    )
+    relationship_registry_address: str = os.getenv(
+        "RELATIONSHIP_REGISTRY_ADDRESS",
+        "0x0000000000000000000000000000000000006000",
+    )
     signer_key: str = os.getenv(
         "RISK_SIGNER_PRIVATE_KEY",
         "0x59c6995e998f97a5a0044976f0945389dc9e86dae88c7a8412f4603b6b78690d",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import time
 
 UNIT = 1_000_000
 HASH = "0x" + "ab" * 32
@@ -37,6 +38,29 @@ RELATIONSHIPS = [{
     "resolutionRulesHash": "0x" + "cd" * 32,
     "canonicalDefinitionHash": HASH,
     "solverDefinition": BTC_SOLVER_DEFINITION,
+    "reviewedMarkets": [{
+        "conditionId": "0x" + "11" * 32,
+        "tokenIds": {"YES": "1", "NO": "2"},
+        "standardBinary": True,
+        "negativeRisk": False,
+        "combo": False,
+        "active": True,
+        "closed": False,
+        "resolved": False,
+        "resolutionSource": "official-index",
+        "ruleDocumentHash": "0x" + "cd" * 32,
+    }, {
+        "conditionId": "0x" + "22" * 32,
+        "tokenIds": {"YES": "3", "NO": "4"},
+        "standardBinary": True,
+        "negativeRisk": False,
+        "combo": False,
+        "active": True,
+        "closed": False,
+        "resolved": False,
+        "resolutionSource": "official-index",
+        "ruleDocumentHash": "0x" + "cd" * 32,
+    }],
     "approvedBy": "local-reviewer",
     "approvedAt": "2026-07-27T00:00:00Z",
     "validFrom": "2026-07-27T00:00:00Z",
@@ -97,7 +121,40 @@ class MemoryStore:
         ]
         self.protocol_events: list[dict] = []
         self.market_snapshots: dict[str, dict] = {}
+        self.local_market_observed_at = time.time()
         self.risk_policy = {"advanceRatioBps": 9500, "originationFeeBps": 50, "utilizationCapBps": 8000, "originationsPaused": False}
+        self.position_balances: dict[str, dict[str, int]] = {
+            "0x0000000000000000000000000000000000000001": {
+                "1": 100 * UNIT,
+                "4": 100 * UNIT,
+            }
+        }
+        self.pool_preflight = {
+            "bytecodeExists": True,
+            "liquidAssets": 1_000 * UNIT,
+            "totalAssets": 1_000 * UNIT,
+            "outstandingAdvanceCostBasis": 0,
+            "perBundleCap": 500 * UNIT,
+            "utilizationCapBps": 8_000,
+            "minimumReserveBps": 1_000,
+        }
+        self.risk_preflight = {
+            "maximumBundleDuration": 366 * 24 * 60 * 60,
+            "maximumAdvanceRatioBps": 9_500,
+            "maximumGrossAdvance": 500 * UNIT,
+            "perWalletExposureCap": 1_000 * UNIT,
+            "perMarketExposureCap": 1_000 * UNIT,
+            "perRelationshipExposureCap": 1_000 * UNIT,
+            "globalExposureCap": 1_000 * UNIT,
+            "walletExposure": {},
+            "marketExposure": {},
+            "relationshipExposure": {},
+            "globalExposure": 0,
+            "adapterAllowed": True,
+            "collateralAllowed": True,
+            "schemaAllowed": True,
+            "originationsPaused": False,
+        }
         self.audit_logs: list[dict] = []
         self.siwe_nonces: dict[str, float] = {}
         self.sessions: dict[str, dict] = {}

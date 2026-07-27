@@ -107,9 +107,15 @@ def position_wallet_authorization_hash(authorization: dict) -> str:
     ).hex()
 
 
-def issue_quote(payload: dict, settings: Settings, nonce: int) -> dict:
+def issue_quote(
+    payload: dict,
+    settings: Settings,
+    nonce: int,
+    *,
+    solver_timestamp: str | None = None,
+) -> dict:
     request = SolverRequest.model_validate(payload["solverRequest"])
-    result = solve(request)
+    result = solve(request, timestamp=solver_timestamp)
     if not result.isSatisfiable:
         raise ValueError(",".join(result.rejectionReasons))
     floor = int(result.guaranteedFloorAtomic)

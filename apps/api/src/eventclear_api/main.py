@@ -23,6 +23,11 @@ from eventclear_solver.models import ProofArtifact, SolverRequest
 
 from .calldata import deposit, redeem_claim, withdraw
 from .polymarket import PolymarketReadGateway
+from .preflight import (
+    QuotePreflightError,
+    relationship_rejection_code,
+    validate_quote_pre_sign,
+)
 from .quote import issue_quote
 from .repository import create_store
 from .seed import POSITIONS
@@ -432,7 +437,7 @@ async def quote(payload: dict, current: dict = Depends(authenticated_session)):
         payload.get("solverRequest", {}).get("relationshipDefinitionHash", "")
     )
     if not relationship or relationship["status"] != "APPROVED":
-        raise HTTPException(422, detail={"code": "RELATIONSHIP_NOT_ACTIVE"})
+        raise HTTPException(422, detail={"code": relationship_rejection_code(relationship)})
     trusted_definition = relationship.get("solverDefinition")
     if not trusted_definition:
         raise HTTPException(422, detail={"code": "REVIEWED_SOLVER_DEFINITION_MISSING"})
@@ -445,18 +450,28 @@ async def quote(payload: dict, current: dict = Depends(authenticated_session)):
         "definitionVersion": relationship["version"],
         "payoutModel": trusted_definition,
     }
-    if settings.normalized_mode not in {"local", "test"}:
-        token_ids = [
-            str(leg.get("tokenId", ""))
-            for leg in trusted_payload.get("solverRequest", {}).get("legs", [])
-            if isinstance(leg, dict)
-        ]
-        try:
-            await require_fresh_books(token_ids)
-        except RuntimeError as exc:
-            raise HTTPException(503, detail={"code": str(exc)}) from exc
     try:
-        result = issue_quote(trusted_payload, settings, store.allocate_quote_nonce())
+        preflight = await validate_quote_pre_sign(
+            trusted_payload,
+            relationship,
+            settings,
+            store,
+            polymarket,
+            require_fresh_books,
+        )
+        result = issue_quote(
+            trusted_payload,
+            settings,
+            store.allocate_quote_nonce(),
+            solver_timestamp=preflight["solverTimestamp"],
+        )
+        if result["solverResult"]["artifactHash"] != preflight["artifactHash"]:
+            raise QuotePreflightError("SOLVER_ARTIFACT_CHANGED_BEFORE_SIGNING")
+        result["preSignValidation"] = preflight
+    except QuotePreflightError as exc:
+        raise HTTPException(422, detail={"code": exc.code}) from exc
+    except RuntimeError as exc:
+        raise HTTPException(503, detail={"code": str(exc)}) from exc
     except (ValueError, TypeError) as exc:
         raise HTTPException(422, detail={"code": "QUOTE_REJECTED", "reason": str(exc)}) from exc
     store.save_quote(result["id"], result)
@@ -483,24 +498,46 @@ async def refresh_quote(quote_id: str, current: dict = Depends(authenticated_ses
         trusted_previous_payload.get("solverRequest", {}).get("relationshipDefinitionHash", "")
     )
     if not relationship or relationship["status"] != "APPROVED":
-        raise HTTPException(422, detail={"code": "RELATIONSHIP_NOT_ACTIVE"})
+        raise HTTPException(422, detail={"code": relationship_rejection_code(relationship)})
     trusted_previous_payload["earliestResolutionTimestamp"] = relationship[
         "earliestResolutionTimestamp"
     ]
     trusted_previous_payload["latestResolutionTimestamp"] = relationship[
         "latestResolutionTimestamp"
     ]
-    if settings.normalized_mode not in {"local", "test"}:
-        token_ids = [
-            str(leg.get("tokenId", ""))
-            for leg in trusted_previous_payload.get("solverRequest", {}).get("legs", [])
-            if isinstance(leg, dict)
-        ]
-        try:
-            await require_fresh_books(token_ids)
-        except RuntimeError as exc:
-            raise HTTPException(503, detail={"code": str(exc)}) from exc
-    refreshed = issue_quote(trusted_previous_payload, settings, store.allocate_quote_nonce())
+    trusted_definition = relationship.get("solverDefinition")
+    if not trusted_definition:
+        raise HTTPException(422, detail={"code": "REVIEWED_SOLVER_DEFINITION_MISSING"})
+    trusted_previous_payload["solverRequest"] = {
+        **trusted_previous_payload.get("solverRequest", {}),
+        "relationshipDefinitionHash": relationship["canonicalDefinitionHash"],
+        "definitionVersion": relationship["version"],
+        "payoutModel": trusted_definition,
+    }
+    try:
+        preflight = await validate_quote_pre_sign(
+            trusted_previous_payload,
+            relationship,
+            settings,
+            store,
+            polymarket,
+            require_fresh_books,
+        )
+        refreshed = issue_quote(
+            trusted_previous_payload,
+            settings,
+            store.allocate_quote_nonce(),
+            solver_timestamp=preflight["solverTimestamp"],
+        )
+        if refreshed["solverResult"]["artifactHash"] != preflight["artifactHash"]:
+            raise QuotePreflightError("SOLVER_ARTIFACT_CHANGED_BEFORE_SIGNING")
+        refreshed["preSignValidation"] = preflight
+    except QuotePreflightError as exc:
+        raise HTTPException(422, detail={"code": exc.code}) from exc
+    except RuntimeError as exc:
+        raise HTTPException(503, detail={"code": str(exc)}) from exc
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(422, detail={"code": "QUOTE_REJECTED", "reason": str(exc)}) from exc
     store.save_quote(refreshed["id"], refreshed)
     return refreshed
 

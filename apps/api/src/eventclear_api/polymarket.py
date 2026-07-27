@@ -8,6 +8,8 @@ from decimal import Decimal, InvalidOperation, ROUND_DOWN
 from typing import Any
 
 import httpx
+from eth_abi import encode
+from eth_utils import keccak
 
 
 class PolymarketReadGateway:
@@ -83,6 +85,7 @@ class PolymarketReadGateway:
         if not isinstance(payload, list):
             raise RuntimeError("POLYMARKET_GAMMA_SCHEMA_INVALID")
         result: list[dict] = []
+        observed_at = time.time()
         for item in payload:
             if not isinstance(item, dict) or not item.get("conditionId"):
                 continue
@@ -101,6 +104,7 @@ class PolymarketReadGateway:
                     "tokenIds": self._token_ids(item.get("clobTokenIds")),
                     "minimumOrderSize": item.get("orderMinSize"),
                     "minimumTickSize": item.get("orderPriceMinTickSize"),
+                    "observedAt": observed_at,
                     "source": "gamma-live",
                 }
             )
@@ -286,3 +290,66 @@ class PolymarketReadGateway:
             except (httpx.HTTPError, RuntimeError, ValueError) as exc:
                 last_error = exc
         raise RuntimeError("ALL_POLYGON_RPCS_UNAVAILABLE") from last_error
+
+    async def rpc(self, method: str, params: list[Any]) -> str:
+        if not self.rpc_urls:
+            raise RuntimeError("RPC_FAILOVER_CONFIGURED")
+        last_error: Exception | None = None
+        for rpc_url in self.rpc_urls:
+            try:
+                async with httpx.AsyncClient(timeout=self.timeout_seconds, transport=self.transport) as client:
+                    response = await client.post(
+                        rpc_url,
+                        json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params},
+                    )
+                    response.raise_for_status()
+                    payload = response.json()
+                    result = payload.get("result")
+                    if not isinstance(result, str):
+                        raise RuntimeError("RPC_SCHEMA_INVALID")
+                    return result
+            except (httpx.HTTPError, RuntimeError, ValueError) as exc:
+                last_error = exc
+        raise RuntimeError("ALL_POLYGON_RPCS_UNAVAILABLE") from last_error
+
+    async def contract_code(self, address: str) -> str:
+        return await self.rpc("eth_getCode", [address, "latest"])
+
+    async def contract_call(
+        self,
+        address: str,
+        signature: str,
+        argument_types: list[str] | None = None,
+        arguments: list[Any] | None = None,
+    ) -> int:
+        selector = keccak(text=signature)[:4]
+        encoded_arguments = encode(argument_types or [], arguments or [])
+        result = await self.rpc(
+            "eth_call",
+            [{"to": address, "data": "0x" + (selector + encoded_arguments).hex()}, "latest"],
+        )
+        try:
+            return int(result, 16)
+        except ValueError as exc:
+            raise RuntimeError("RPC_SCHEMA_INVALID") from exc
+
+    async def contract_call_words(
+        self,
+        address: str,
+        signature: str,
+        argument_types: list[str] | None = None,
+        arguments: list[Any] | None = None,
+    ) -> list[int]:
+        selector = keccak(text=signature)[:4]
+        encoded_arguments = encode(argument_types or [], arguments or [])
+        result = await self.rpc(
+            "eth_call",
+            [{"to": address, "data": "0x" + (selector + encoded_arguments).hex()}, "latest"],
+        )
+        raw = result.removeprefix("0x")
+        if not raw or len(raw) % 64 != 0:
+            raise RuntimeError("RPC_SCHEMA_INVALID")
+        try:
+            return [int(raw[index : index + 64], 16) for index in range(0, len(raw), 64)]
+        except ValueError as exc:
+            raise RuntimeError("RPC_SCHEMA_INVALID") from exc

@@ -40,6 +40,39 @@ class ApiTests(unittest.TestCase):
             f"Issued At: {issued_at}"
         )
 
+    @staticmethod
+    def valid_quote_payload() -> dict:
+        return {
+            "accountWallet": "0x0000000000000000000000000000000000000001",
+            "solverRequest": {
+                "relationshipDefinitionHash": "0x" + "ab" * 32,
+                "definitionVersion": 3,
+                "legs": [
+                    {
+                        "conditionId": "0x" + "11" * 32,
+                        "tokenId": "1",
+                        "outcome": "YES",
+                        "amountAtomic": "100000000",
+                    },
+                    {
+                        "conditionId": "0x" + "22" * 32,
+                        "tokenId": "4",
+                        "outcome": "NO",
+                        "amountAtomic": "100000000",
+                    },
+                ],
+                "payoutModel": {},
+            },
+        }
+
+    def request_quote(self, payload: dict | None = None):
+        payload = payload or self.valid_quote_payload()
+        return self.client.post(
+            "/api/v1/quotes",
+            json=payload,
+            headers=self.session_headers(payload["accountWallet"]),
+        )
+
     def test_health_and_correlation(self):
         response = self.client.get("/api/v1/health", headers={"x-correlation-id": "test-id"})
         self.assertEqual(response.status_code, 200)
@@ -223,6 +256,90 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(body["quote"]["latestResolutionTimestamp"], "1799366399")
         self.assertEqual(body["requestPayload"]["earliestResolutionTimestamp"], 1798761599)
         self.assertEqual(body["requestPayload"]["latestResolutionTimestamp"], 1799366399)
+
+    def test_quote_preflight_reports_checks_and_revalidates_refresh(self):
+        response = self.request_quote()
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertTrue(all(body["preSignValidation"]["checks"].values()))
+        self.assertEqual(
+            body["preSignValidation"]["artifactHash"],
+            body["solverResult"]["artifactHash"],
+        )
+
+        store.position_balances[
+            "0x0000000000000000000000000000000000000001"
+        ]["1"] = 0
+        refreshed = self.client.post(
+            f"/api/v1/quotes/{body['id']}/refresh",
+            headers=self.session_headers(
+                "0x0000000000000000000000000000000000000001"
+            ),
+        )
+        self.assertEqual(refreshed.status_code, 422)
+        self.assertEqual(
+            refreshed.json()["detail"]["code"],
+            "POSITION_BALANCE_INSUFFICIENT",
+        )
+
+    def test_quote_rejects_insufficient_rpc_equivalent_balance(self):
+        store.position_balances[
+            "0x0000000000000000000000000000000000000001"
+        ]["1"] = 99_999_999
+        response = self.request_quote()
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["detail"]["code"], "POSITION_BALANCE_INSUFFICIENT")
+
+    def test_quote_rejects_resolved_and_negative_risk_markets(self):
+        store.relationships[0]["reviewedMarkets"][0]["resolved"] = True
+        resolved = self.request_quote()
+        self.assertEqual(resolved.status_code, 422)
+        self.assertEqual(resolved.json()["detail"]["code"], "MARKET_ALREADY_RESOLVED")
+
+        store.reset()
+        store.relationships[0]["reviewedMarkets"][0]["negativeRisk"] = True
+        negative_risk = self.request_quote()
+        self.assertEqual(negative_risk.status_code, 422)
+        self.assertEqual(
+            negative_risk.json()["detail"]["code"],
+            "UNSUPPORTED_NEGATIVE_RISK_POSITION",
+        )
+
+    def test_quote_rejects_suspended_relationship(self):
+        store.relationships[0]["status"] = "SUSPENDED"
+        response = self.request_quote()
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["detail"]["code"], "RELATIONSHIP_SUSPENDED")
+
+    def test_quote_rejects_pool_liquidity_and_market_exposure(self):
+        store.pool_preflight["liquidAssets"] = 0
+        liquidity = self.request_quote()
+        self.assertEqual(liquidity.status_code, 422)
+        self.assertEqual(liquidity.json()["detail"]["code"], "POOL_LIQUIDITY_INSUFFICIENT")
+
+        store.reset()
+        store.risk_preflight["perMarketExposureCap"] = 1
+        exposure = self.request_quote()
+        self.assertEqual(exposure.status_code, 422)
+        self.assertEqual(exposure.json()["detail"]["code"], "MARKET_EXPOSURE_LIMIT")
+
+    def test_quote_rejects_excessive_resolution_duration(self):
+        store.risk_preflight["maximumBundleDuration"] = 1
+        response = self.request_quote()
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["detail"]["code"], "BUNDLE_DURATION_EXCEEDED")
+
+    def test_quote_rejects_stale_market_data_and_paused_originations(self):
+        store.local_market_observed_at = time.time() - 31
+        stale = self.request_quote()
+        self.assertEqual(stale.status_code, 422)
+        self.assertEqual(stale.json()["detail"]["code"], "MARKET_DATA_STALE")
+
+        store.reset()
+        store.risk_preflight["originationsPaused"] = True
+        paused = self.request_quote()
+        self.assertEqual(paused.status_code, 422)
+        self.assertEqual(paused.json()["detail"]["code"], "ORIGINATIONS_PAUSED")
 
     def test_quote_rejects_siwe_and_position_wallet_mismatch(self):
         payload = {

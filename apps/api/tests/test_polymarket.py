@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 import unittest
 
@@ -83,6 +84,29 @@ class PolymarketGatewayTests(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaisesRegex(RuntimeError, "POLYMARKET_HISTORY_INTERVAL_INVALID"):
             await self.gateway(handler).price_history("42", interval="quarter")
+
+    async def test_rpc_contract_reads_fail_over_and_decode_uints(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "rpc-one.test":
+                return httpx.Response(503)
+            payload = json.loads(request.content)
+            self.assertEqual(payload["method"], "eth_call")
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": "0x" + f"{42:064x}"})
+
+        gateway = PolymarketReadGateway(
+            "https://gamma.test",
+            "https://data.test",
+            "https://clob.test",
+            ("https://rpc-one.test", "https://rpc-two.test"),
+            transport=httpx.MockTransport(handler),
+        )
+        value = await gateway.contract_call(
+            "0x0000000000000000000000000000000000000001",
+            "balanceOf(address,uint256)",
+            ["address", "uint256"],
+            ["0x0000000000000000000000000000000000000002", 7],
+        )
+        self.assertEqual(value, 42)
 
 
 if __name__ == "__main__":

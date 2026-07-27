@@ -59,6 +59,7 @@ await writeFile(
     `CLAIMS_ADDRESS=${addresses.EventClearClaims}`,
     `FUNDING_POOL_ADDRESS=${addresses.EventClearFundingPool}`,
     `COLLATERAL_TOKEN_ADDRESS=${addresses.MockPUSD}`,
+    `CTF_ADDRESS=${addresses.MockConditionalTokens}`,
     `STANDARD_CTF_ADAPTER_ADDRESS=${addresses.MockCTFAdapter}`,
     `RELATIONSHIP_REGISTRY_ADDRESS=${addresses.RelationshipRegistry}`,
     `TREASURY_ADDRESS=${addresses.EventClearTreasury}`,
