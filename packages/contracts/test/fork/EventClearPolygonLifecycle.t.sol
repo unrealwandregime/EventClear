@@ -150,9 +150,9 @@ contract EventClearPolygonLifecycleForkTest is Test {
 
         pool.redeemPrincipal(IPrincipalVault(address(vault)), bundleId, UNIT);
         assertEq(pool.outstandingAdvanceCostBasis(), 0);
-        assertEq(pool.realizedYield(), 45_000);
+        assertEq(pool.realizedYield(), 40_725);
         assertEq(treasury.feesBySource(keccak256("ORIGINATION")), 4_750);
-        assertEq(treasury.feesBySource(keccak256("REALIZED_FINANCING_RETURN")), 5_000);
+        assertEq(treasury.feesBySource(keccak256("REALIZED_FINANCING_RETURN")), 4_525);
 
         vm.prank(borrower);
         vault.redeemResidual(bundleId, 1e18);

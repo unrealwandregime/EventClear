@@ -229,16 +229,20 @@ contract EventClearLifecycleTest is Test {
             q, sig, walletAuthorizationSignature(authorization(q)), conditions, ids, outcomes, amounts, 3
         );
         assertEq(pusd.balanceOf(borrower), 94_525_000);
+        assertEq(treasury.feesBySource(keccak256("ORIGINATION")), 0);
+        assertEq(treasury.feesBySource(keccak256("REALIZED_FINANCING_RETURN")), 0);
         assertEq(claims.balanceOf(address(pool), claims.claimId(bundleId, claims.PRINCIPAL())), 100 * UNIT);
         ctf.resolve(conditions[0], UNIT, 0);
         ctf.resolve(conditions[1], 0, UNIT);
         vault.settle(bundleId);
         EventClearVault.Bundle memory bundle = vault.getBundle(bundleId);
         assertEq(bundle.settlementProceeds, 200 * UNIT);
+        assertEq(treasury.feesBySource(keccak256("ORIGINATION")), 0);
+        assertEq(treasury.feesBySource(keccak256("REALIZED_FINANCING_RETURN")), 0);
         pool.redeemPrincipal(IPrincipalVault(address(vault)), bundleId, 100 * UNIT);
         assertEq(treasury.feesBySource(keccak256("ORIGINATION")), 475_000);
-        assertEq(treasury.feesBySource(keccak256("REALIZED_FINANCING_RETURN")), 500_000);
-        assertEq(pool.realizedYield(), 4_500_000);
+        assertEq(treasury.feesBySource(keccak256("REALIZED_FINANCING_RETURN")), 452_500);
+        assertEq(pool.realizedYield(), 4_072_500);
         vm.prank(borrower);
         vault.redeemResidual(bundleId, 5e17);
         assertEq(pusd.balanceOf(borrower), 144_525_000);
@@ -273,6 +277,12 @@ contract EventClearLifecycleTest is Test {
         assertEq(uint256(bundle.status), uint256(EventClearVault.BundleStatus.SHORTFALL));
         assertEq(bundle.principalAllocation, 75 * UNIT);
         assertEq(bundle.residualAllocation, 0);
+        pool.redeemPrincipal(IPrincipalVault(address(vault)), bundleId, 100 * UNIT);
+        assertEq(pool.realizedLoss(), 20 * UNIT);
+        assertEq(pool.realizedYield(), 0);
+        assertEq(treasury.feesBySource(keccak256("ORIGINATION")), 0);
+        assertEq(treasury.feesBySource(keccak256("REALIZED_FINANCING_RETURN")), 0);
+        assertEq(pusd.balanceOf(borrower), 95 * UNIT);
     }
 
     function testExpiredQuoteAndWrongDomainAreRejected() public {
@@ -390,9 +400,14 @@ contract EventClearLifecycleTest is Test {
 
         assertEq(claims.claimId(bundleId, claims.PRINCIPAL()), uint256(keccak256(abi.encode(bundleId, uint8(1)))));
         assertEq(claims.totalSupply(claims.claimId(bundleId, claims.RESIDUAL())), 1e18);
-        assertEq(pool.totalAssets(), pusd.balanceOf(address(pool)) + pool.outstandingAdvanceCostBasis());
+        assertEq(
+            pool.totalAssets(),
+            pusd.balanceOf(address(pool)) + pool.outstandingAdvanceCostBasis() - pool.outstandingQuotedFees()
+        );
         assertEq(pool.advanceCostBasis(bundleId), q.grossAdvance);
-        assertEq(treasury.feesBySource(keccak256("ORIGINATION")), q.originationFee);
+        assertEq(pool.quotedOriginationFee(bundleId), q.originationFee);
+        assertEq(pool.outstandingQuotedFees(), q.originationFee);
+        assertEq(treasury.feesBySource(keccak256("ORIGINATION")), 0);
     }
 
     function testQuotePoolCollateralBorrowerAndSignerBindings() public {

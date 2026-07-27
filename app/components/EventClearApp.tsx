@@ -50,6 +50,7 @@ type PoolRecord = {
   totalAssetsAtomic: string;
   liquidAtomic: string;
   outstandingAdvanceCostBasisAtomic: string;
+  outstandingQuotedFeesAtomic: string;
   realizedYieldAtomic: string;
   utilizationBps: number;
 };
@@ -353,6 +354,7 @@ export function EventClearApp() {
                   <div><label>Total assets</label><strong>{formatPusd(pool?.totalAssetsAtomic)}</strong><small>pUSD</small></div>
                   <div><label>Liquid reserve</label><strong>{formatPusd(pool?.liquidAtomic)}</strong><small>verified balance</small></div>
                   <div><label>Outstanding cost</label><strong>{formatPusd(pool?.outstandingAdvanceCostBasisAtomic)}</strong><small>pUSD</small></div>
+                  <div><label>Quoted fees pending</label><strong>{formatPusd(pool?.outstandingQuotedFeesAtomic)}</strong><small>unearned</small></div>
                   <div><label>Realized net yield</label><strong>{formatPusd(pool?.realizedYieldAtomic)}</strong><small>after protocol fees</small></div>
                 </div>
               </div>
@@ -396,7 +398,7 @@ export function EventClearApp() {
                 <div><label>Guaranteed floor</label><strong>{formatPusd(selected.guaranteedFloorAtomic)} pUSD</strong></div>
                 <div><label>Net advance</label><strong>{formatPusd(selected.estimatedAdvanceAtomic)} pUSD</strong></div>
                 <div><label>Principal claim</label><strong>{formatPusd(selected.guaranteedFloorAtomic)} pUSD</strong></div>
-                <div><label>Protocol fee</label><strong>0.50 pUSD</strong></div>
+                <div><label>Quoted origination fee</label><strong>Calculated on live quote</strong></div>
                 <div><label>Reserve haircut</label><strong>1.00%</strong></div>
                 <div><label>Residual upside</label><strong>Retained by borrower claim</strong></div>
               </div>

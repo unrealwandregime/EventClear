@@ -643,7 +643,18 @@ def relationship_action(relationship_id: str, action: str, actor: str = Depends(
 def pool():
     if settings.normalized_mode not in {"local", "test"}:
         raise HTTPException(503, detail={"code": "INDEXED_POOL_STATE_UNAVAILABLE"})
-    return {"totalAssetsAtomic": "1000000000", "liquidAtomic": "905000000", "outstandingAdvanceCostBasisAtomic": "95000000", "utilizationBps": 950, "realizedYieldAtomic": "0", "realizedLossAtomic": "0", "depositCapAtomic": "1000000000000", "source": "seeded-local"}
+    return {
+        "totalAssetsAtomic": "1000000000",
+        "liquidAtomic": "905475000",
+        "outstandingAdvanceCostBasisAtomic": "95000000",
+        "outstandingQuotedFeesAtomic": "475000",
+        "utilizationBps": 950,
+        "realizedOriginationFeesAtomic": "0",
+        "realizedYieldAtomic": "0",
+        "realizedLossAtomic": "0",
+        "depositCapAtomic": "1000000000000",
+        "source": "seeded-local",
+    }
 
 
 @app.get("/api/v1/pool/history")

@@ -23,14 +23,18 @@ contract EventClearFundingPool is ERC4626, AccessControl, ERC1155Holder {
     bytes32 public constant LP_ROLE = keccak256("LP_ROLE");
 
     uint256 public outstandingAdvanceCostBasis;
+    uint256 public outstandingQuotedFees;
     uint256 public realizedYield;
     uint256 public realizedLoss;
+    uint256 public realizedOriginationFees;
     uint256 public depositCap;
     uint256 public perBundleCap;
     uint16 public utilizationCapBps = 8_000;
     uint16 public minimumReserveBps = 1_000;
     uint16 public protocolYieldFeeBps = 1_000;
     mapping(uint256 bundleId => uint256) public advanceCostBasis;
+    mapping(uint256 bundleId => uint256) public quotedOriginationFee;
+    mapping(uint256 bundleId => address) public advanceBorrower;
     address public immutable feeTreasury;
 
     error CapExceeded();
@@ -49,6 +53,9 @@ contract EventClearFundingPool is ERC4626, AccessControl, ERC1155Holder {
     event PrincipalSettled(
         uint256 indexed bundleId, uint256 principalReceived, uint256 realizedNetYield, uint256 protocolFee
     );
+    event OriginationFeeSettled(
+        uint256 indexed bundleId, uint256 quotedFee, uint256 realizedFee, uint256 refundedFee
+    );
 
     constructor(IERC20 asset_, address admin, address feeTreasury_, uint256 cap, uint256 bundleCap)
         ERC20("EventClear Pilot Pool", "ecPUSD")
@@ -63,7 +70,7 @@ contract EventClearFundingPool is ERC4626, AccessControl, ERC1155Holder {
     }
 
     function totalAssets() public view override returns (uint256) {
-        return IERC20(asset()).balanceOf(address(this)) + outstandingAdvanceCostBasis;
+        return IERC20(asset()).balanceOf(address(this)) + outstandingAdvanceCostBasis - outstandingQuotedFees;
     }
 
     function maxDeposit(address receiver) public view override returns (uint256) {
@@ -90,20 +97,22 @@ contract EventClearFundingPool is ERC4626, AccessControl, ERC1155Holder {
         if (assets == 0 || (outstandingAdvanceCostBasis + amount) * 10_000 > assets * utilizationCapBps) {
             revert CapExceeded();
         }
-        uint256 liquid = IERC20(asset()).balanceOf(address(this));
-        if (liquid < amount || liquid - amount < assets * minimumReserveBps / 10_000) revert InsufficientLiquidity();
-        advanceCostBasis[bundleId] = amount;
-        outstandingAdvanceCostBasis += amount;
         uint256 netAdvance = amount - fee;
-        IERC20(asset()).safeTransfer(borrower, netAdvance);
-        if (fee != 0) {
-            IERC20(asset()).safeTransfer(feeTreasury, fee);
-            IFeeTreasury(feeTreasury).recordFee(keccak256("ORIGINATION"), fee);
+        uint256 liquid = IERC20(asset()).balanceOf(address(this));
+        if (liquid < netAdvance || liquid - netAdvance < assets * minimumReserveBps / 10_000) {
+            revert InsufficientLiquidity();
         }
+        advanceCostBasis[bundleId] = amount;
+        quotedOriginationFee[bundleId] = fee;
+        advanceBorrower[bundleId] = borrower;
+        outstandingAdvanceCostBasis += amount;
+        outstandingQuotedFees += fee;
+        IERC20(asset()).safeTransfer(borrower, netAdvance);
         emit AdvanceFunded(bundleId, borrower, amount, fee, netAdvance);
     }
 
     function recordSettlement(uint256 bundleId, uint256 principalReceived) external onlyRole(VAULT_ROLE) {
+        IERC20(asset()).safeTransferFrom(msg.sender, address(this), principalReceived);
         _recordSettlement(bundleId, principalReceived);
     }
 
@@ -117,18 +126,33 @@ contract EventClearFundingPool is ERC4626, AccessControl, ERC1155Holder {
     function _recordSettlement(uint256 bundleId, uint256 principalReceived) internal {
         uint256 cost = advanceCostBasis[bundleId];
         if (cost == 0) revert InsufficientLiquidity();
+        uint256 quotedFee = quotedOriginationFee[bundleId];
+        address borrower = advanceBorrower[bundleId];
         advanceCostBasis[bundleId] = 0;
+        quotedOriginationFee[bundleId] = 0;
+        advanceBorrower[bundleId] = address(0);
         outstandingAdvanceCostBasis -= cost;
+        outstandingQuotedFees -= quotedFee;
         uint256 grossYield = principalReceived > cost ? principalReceived - cost : 0;
         uint256 loss = principalReceived < cost ? cost - principalReceived : 0;
-        uint256 protocolFee = grossYield * protocolYieldFeeBps / 10_000;
-        uint256 netYield = grossYield - protocolFee;
+        uint256 realizedOriginationFee = grossYield < quotedFee ? grossYield : quotedFee;
+        uint256 refundedFee = quotedFee - realizedOriginationFee;
+        uint256 remainingYield = grossYield - realizedOriginationFee;
+        uint256 protocolFee = remainingYield * protocolYieldFeeBps / 10_000;
+        uint256 netYield = remainingYield - protocolFee;
         realizedYield += netYield;
         realizedLoss += loss;
+        realizedOriginationFees += realizedOriginationFee;
+        if (realizedOriginationFee != 0) {
+            IERC20(asset()).safeTransfer(feeTreasury, realizedOriginationFee);
+            IFeeTreasury(feeTreasury).recordFee(keccak256("ORIGINATION"), realizedOriginationFee);
+        }
         if (protocolFee != 0) {
             IERC20(asset()).safeTransfer(feeTreasury, protocolFee);
             IFeeTreasury(feeTreasury).recordFee(keccak256("REALIZED_FINANCING_RETURN"), protocolFee);
         }
+        if (refundedFee != 0) IERC20(asset()).safeTransfer(borrower, refundedFee);
+        emit OriginationFeeSettled(bundleId, quotedFee, realizedOriginationFee, refundedFee);
         emit PrincipalSettled(bundleId, principalReceived, netYield, protocolFee);
     }
 

@@ -275,8 +275,10 @@ Current contract/security findings:
 - Financing quotes do not commit to a position-wallet authorization object.
 - `RiskPolicy` incorrectly uses quote expiry as bundle duration.
 - Relationship metadata does not commit to earliest/latest resolution time.
-- The pool transfers the quoted origination fee to treasury before settlement,
-  including bundles that can later shortfall.
+- At the audited baseline, the pool transferred the quoted origination fee to
+  treasury before settlement, including bundles that could later shortfall.
+  The continuation sprint replaced this with settlement-only realization and
+  unused-fee refunds.
 - Smart-wallet financing must remain disabled until an official control path is
   independently verified.
 

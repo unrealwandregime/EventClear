@@ -27,7 +27,9 @@
 9. **FastAPI services.** Solver and protocol API are separately deployable Python 3.12 services. The API imports the same solver library locally so quote issuance always reruns identical code.
 10. **Seeded data is local-only.** Local/test modes expose deterministic lifecycle fixtures. Non-local frontend and API paths fail closed or report unavailable when no verified source exists.
 11. **Standard-market-only mainnet pilot.** Polymarket's official pUSD adapter is the authorized wrapper and redeems the caller's entire YES/NO balance for a condition. EventClear moves only quote-bound amounts into a fresh per-redemption escrow, then delegates each condition to that official adapter. This preserves bundle isolation and the authorized pUSD path. Negative-risk originations stay disabled until a separate adapter and quote schema are reviewed.
-12. **Separated fee sources.** The pool advances gross principal at cost, sends the upfront origination fee to treasury, and sends net advance to the borrower. At settlement, a separately configured share of realized financing return goes to treasury; shortfalls pay no realized-return fee.
+12. **Separated fee sources (superseded by decision 17).** Origination
+    and realized-return fees remain separately attributable in treasury
+    accounting.
 13. **KMS-only production signing.** Local and fork modes may use a development key. Polygon mainnet requires AWS KMS secp256k1 digest signing and recovers every signature against the configured signer address before returning a quote.
 
 14. **Strict EOA execution identity.** The first execution-capable release
@@ -42,5 +44,5 @@
     signed quote. Quote expiry controls signature validity only.
 17. **Settlement-only fee realization.** The quoted origination fee is retained
     inside the gross pool cost basis and may be paid only from financing return
-    actually received at settlement. Break-even and shortfall settlements pay
-    no protocol fees.
+    actually received at settlement. Any unearned portion is returned to the
+    borrower. Break-even and shortfall settlements pay no protocol fees.

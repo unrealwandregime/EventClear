@@ -23,7 +23,6 @@ Baseline commit: `7d65bb3bf8fd5d714a3c8a536389ebc5f2e76b10`
 
 In progress:
 
-- Settlement-only fee realization.
 - Trusted quote pre-sign validation, generated threshold worlds, connected UI,
   indexer completion, browser E2E, CI and staging preparation.
 
@@ -50,6 +49,13 @@ Completed in this sprint:
   conditions and markets whose latest resolution timestamp has passed.
 - Regression coverage proves a five-minute quote can finance a six-month
   market while a two-year market exceeds the configured duration cap.
+- The funding pool transfers only net advance, carries gross cost basis and
+  excludes pending quoted fees from book assets.
+- Origination fees are realized only from financing return actually received;
+  unused quoted fees are refunded, and break-even/shortfall paths pay no
+  protocol fee.
+- Treasury sources remain separate for realized origination fees and the
+  protocol share of additional financing return.
 
 ## Milestone 0 — Existing repository audit
 
@@ -102,7 +108,8 @@ Completed:
   and standalone `RiskPolicy`.
 - EIP-712 quotes bound to borrower, position wallet, exact bundle, relationship,
   solver artifact, pool, collateral, chain and vault.
-- Gross/net advance and upfront origination-fee model.
+- Gross/net advance and quoted origination-fee model (fee timing was
+  subsequently replaced by settlement-only realization).
 - Per-wallet, market, relationship and global exposure controls.
 - Principal-first shortfall-safe settlement.
 - Settlement and claim burns remain available while originations/transfers are

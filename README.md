@@ -75,7 +75,9 @@ The solver proves the supplied formal model, not the truth of a wrongly authored
 - `RelationshipRegistry` stores immutable approved definition hashes, versions, validity windows, and lifecycle status.
 - `EventClearVault` verifies EIP-712 quotes, binds legs/amounts, escrows tokens, coordinates funding, redeems resolved positions by balance difference, and allocates principal before residual.
 - `EventClearClaims` mints transferable ERC-1155 principal and residual claims with deterministic IDs `(bundleId << 8) | claimType`.
-- `EventClearFundingPool` is an allowlisted ERC-4626 pilot pool. `totalAssets = liquid pUSD + outstanding advance cost basis`; yield is not recognized before settlement.
+- `EventClearFundingPool` is an allowlisted ERC-4626 pilot pool. `totalAssets =
+  liquid pUSD + outstanding gross advance cost basis - outstanding quoted
+  fees`; unearned fees and yield are not recognized before settlement.
 - `PolymarketStandardAdapter` isolates exact standard-market legs before CTF redemption and wraps the resulting USDC.e into pUSD. Negative-risk originations are disabled for the first pilot.
 - `EventClearTreasury` records fee sources and permits multisig-controlled withdrawal.
 - Local mocks implement pUSD, CTF positions, resolution, redemption, fractional payouts, and a full bundle lifecycle.
@@ -83,8 +85,10 @@ The solver proves the supplied formal model, not the truth of a wrongly authored
 The first vault is intentionally non-upgradeable. Role holders are multisig-ready. Originations can pause independently while settlement remains available.
 
 Origination fees are realized only from settlement yield: principal repays the
-pool's advance cost basis, the quoted fee is transferred to the treasury, and
-the remainder becomes LP net yield. Shortfall bundles pay no protocol fee.
+pool's gross advance cost basis, the quoted fee is transferred to the treasury
+only up to available financing return, and any unearned portion is refunded to
+the borrower. The protocol yield fee applies only to additional return.
+Break-even and shortfall bundles pay no protocol fee.
 
 ## Relationship definitions
 

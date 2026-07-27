@@ -9,8 +9,8 @@ Baseline: `7d65bb3bf8fd5d714a3c8a536389ebc5f2e76b10`
 - [x] Keep unverified Deposit Wallet, Proxy and Safe paths read-only.
 - [x] Commit reviewed resolution timestamps in registry and signed quotes.
 - [x] Enforce maximum duration from latest resolution, never quote expiry.
-- [ ] Realize quoted origination fees only from successful financing return.
-- [ ] Pay no protocol fee on break-even or shortfall settlement.
+- [x] Realize quoted origination fees only from successful financing return.
+- [x] Pay no protocol fee on break-even or shortfall settlement.
 - [ ] Revalidate relationship, proof, balances, market state, liquidity and risk
       immediately before quote signing.
 - [ ] Generate crypto-threshold worlds from reviewed predicates and compare the
