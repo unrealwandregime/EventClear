@@ -79,11 +79,16 @@ jobs:
       - if: always()
         run: docker compose down --volumes
   polygon-fork:
-    if: ${{ secrets.POLYGON_RPC_URL != '' }}
     runs-on: ubuntu-latest
+    env:
+      POLYGON_RPC_URL: ${{ secrets.POLYGON_RPC_URL }}
     steps:
       - uses: actions/checkout@v4
       - uses: foundry-rs/foundry-toolchain@v1
       - working-directory: packages/contracts
-        env: { POLYGON_RPC_URL: "${{ secrets.POLYGON_RPC_URL }}" }
-        run: forge test --match-path "test/fork/*" --fork-url "$POLYGON_RPC_URL" --fork-block-number 90963627
+        run: |
+          if [ -z "$POLYGON_RPC_URL" ]; then
+            echo "Polygon fork test not configured; POLYGON_RPC_URL is absent."
+            exit 0
+          fi
+          forge test --match-path "test/fork/*" --fork-url "$POLYGON_RPC_URL" --fork-block-number 90963627
