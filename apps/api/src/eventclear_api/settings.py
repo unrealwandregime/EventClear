@@ -9,12 +9,20 @@ class Settings:
     mode: str = os.getenv("EVENTCLEAR_MODE", "local")
     store_backend: str = os.getenv("EVENTCLEAR_STORE", "memory")
     database_url: str = os.getenv("DATABASE_URL", "")
+    redis_url: str = os.getenv("REDIS_URL", "")
+    admin_api_token: str = os.getenv("ADMIN_API_TOKEN", "local-admin")
+    siwe_domain: str = os.getenv("SIWE_DOMAIN", "eventclear.local")
+    siwe_uri: str = os.getenv("SIWE_URI", "http://eventclear.local")
     chain_id: int = int(os.getenv("CHAIN_ID", "31337"))
     vault_address: str = os.getenv("VAULT_ADDRESS", "0x0000000000000000000000000000000000001000")
     signer_key: str = os.getenv(
         "RISK_SIGNER_PRIVATE_KEY",
         "0x59c6995e998f97a5a0044976f0945389dc9e86dae88c7a8412f4603b6b78690d",
     )
+    signer_backend: str = os.getenv("RISK_SIGNER_BACKEND", "local")
+    signer_address: str = os.getenv("RISK_SIGNER_ADDRESS", "")
+    signer_kms_key_id: str = os.getenv("RISK_SIGNER_KMS_KEY_ID", "")
+    signer_kms_region: str = os.getenv("RISK_SIGNER_KMS_REGION", "")
     quote_lifetime_seconds: int = min(int(os.getenv("QUOTE_LIFETIME_SECONDS", "300")), 300)
 
     def validate(self) -> None:
@@ -22,6 +30,8 @@ class Settings:
             raise RuntimeError("INVALID_OPERATING_MODE")
         if self.store_backend not in {"memory", "postgres"}:
             raise RuntimeError("INVALID_STORE_BACKEND")
+        if self.signer_backend not in {"local", "kms"}:
+            raise RuntimeError("INVALID_SIGNER_BACKEND")
         if self.store_backend == "postgres" and not self.database_url:
             raise RuntimeError("DATABASE_URL_REQUIRED")
         if self.mode == "polygon-mainnet":
@@ -37,5 +47,19 @@ class Settings:
                 missing.append("EVENTCLEAR_STORE=postgres")
             if not self.database_url:
                 missing.append("DATABASE_URL")
+            if not self.redis_url:
+                missing.append("REDIS_URL")
+            if len(self.admin_api_token) < 32 or self.admin_api_token == "local-admin":
+                missing.append("ADMIN_API_TOKEN_STRONG")
+            if not self.siwe_uri.startswith("https://"):
+                missing.append("SIWE_URI_HTTPS")
+            if self.signer_backend != "kms":
+                missing.append("RISK_SIGNER_BACKEND=kms")
+            if not self.signer_address:
+                missing.append("RISK_SIGNER_ADDRESS")
+            if not self.signer_kms_key_id:
+                missing.append("RISK_SIGNER_KMS_KEY_ID")
+            if not self.signer_kms_region:
+                missing.append("RISK_SIGNER_KMS_REGION")
             if missing or self.chain_id != 137:
                 raise RuntimeError(f"MAINNET_SAFETY_GATE_FAILED:{','.join(missing)}")

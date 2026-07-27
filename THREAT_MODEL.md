@@ -2,6 +2,8 @@
 
 | Threat | Primary controls | Residual risk |
 |---|---|---|
+| Shared-vault over-redemption | Exact-leg isolation adapter, token-ID derivation, duplicate-condition rejection, zero post-redemption balances | Unsupported negative-risk markets remain disabled |
+| Fee overcharge | Fee capped to realized gross yield and cleared once per bundle | Incorrect quote economics before signature |
 | Incorrect logical relationship | Reviewed canonical definition, exact rule hashes, immutable versions, witness worlds | Reviewer may formalize rules incorrectly |
 | Incorrect/stale market metadata | Official SDK, freshness limit, backend revalidation | Upstream data may be wrong |
 | Resolution-rule changes | Content hashes, new relationship version, suspension | Ambiguous source changes |
@@ -23,3 +25,7 @@
 | Malicious token rescue | No active-collateral rescue path in MVP | Accidental unrelated tokens remain stuck |
 
 Settlement remains callable when new originations are paused. A shortfall allocates all proceeds to principal, zero to residual, and never draws unrelated pool assets.
+
+Production quote signing uses AWS KMS digest signing. Signatures are normalized
+to low-s form and recovered against the configured signer; mainnet refuses the
+local-key backend.

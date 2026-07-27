@@ -5,7 +5,6 @@ import json
 import time
 import uuid
 
-from eth_account import Account
 from eth_account.messages import encode_typed_data
 from eth_abi import encode
 from eth_utils import keccak
@@ -14,6 +13,7 @@ from eventclear_solver.engine import solve
 from eventclear_solver.models import SolverRequest
 
 from .settings import Settings
+from .signer import sign_typed_data
 
 BPS = 10_000
 
@@ -76,7 +76,7 @@ def issue_quote(payload: dict, settings: Settings, nonce: int) -> dict:
         {"name": "vault", "type": "address"},
     ]}
     signable = encode_typed_data(domain, types, message)
-    signature = Account.sign_message(signable, private_key=settings.signer_key).signature.hex()
+    signature = sign_typed_data(signable, settings).hex()
     return {
         "id": str(uuid.uuid4()),
         "status": "ISSUED",

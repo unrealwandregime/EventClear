@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {EventClearVault, IRedemptionAdapter} from "../src/EventClearVault.sol";
 import {EventClearClaims} from "../src/EventClearClaims.sol";
 import {EventClearFundingPool, IPrincipalVault} from "../src/EventClearFundingPool.sol";
+import {EventClearTreasury} from "../src/EventClearTreasury.sol";
 import {RelationshipRegistry} from "../src/RelationshipRegistry.sol";
 import {MockPUSD} from "../src/mocks/MockPUSD.sol";
 import {MockConditionalTokens} from "../src/mocks/MockConditionalTokens.sol";
@@ -22,6 +23,7 @@ contract EventClearLifecycleTest is Test {
     RelationshipRegistry registry;
     EventClearClaims claims;
     EventClearFundingPool pool;
+    EventClearTreasury treasury;
     EventClearVault vault;
 
     function setUp() public {
@@ -31,12 +33,14 @@ contract EventClearLifecycleTest is Test {
         adapter = new MockCTFAdapter(ctf, pusd);
         registry = new RelationshipRegistry(address(this));
         claims = new EventClearClaims(address(this));
-        pool = new EventClearFundingPool(pusd, address(this), 10_000 * UNIT, 1_000 * UNIT);
+        treasury = new EventClearTreasury(address(this));
+        pool = new EventClearFundingPool(pusd, address(this), address(treasury), 10_000 * UNIT, 1_000 * UNIT);
         vault = new EventClearVault(
             pusd, ctf, registry, claims, pool, IRedemptionAdapter(address(adapter)), signer, address(this)
         );
         claims.grantRole(claims.VAULT_ROLE(), address(vault));
         pool.grantRole(pool.VAULT_ROLE(), address(vault));
+        treasury.grantRole(treasury.RECORDER_ROLE(), address(pool));
         registry.register(relationshipHash, 3, uint64(block.timestamp), 0, keccak256("rules"));
         pusd.mint(address(this), 1_000 * UNIT);
         pusd.approve(address(pool), type(uint256).max);
@@ -96,7 +100,11 @@ contract EventClearLifecycleTest is Test {
         return abi.encodePacked(r, s, v);
     }
 
-    function legs() internal pure returns (bytes32[] memory conditions, uint256[] memory ids, uint256[] memory amounts) {
+    function legs()
+        internal
+        pure
+        returns (bytes32[] memory conditions, uint256[] memory ids, uint256[] memory amounts)
+    {
         conditions = new bytes32[](2);
         ids = new uint256[](2);
         amounts = new uint256[](2);
@@ -123,6 +131,8 @@ contract EventClearLifecycleTest is Test {
         EventClearVault.Bundle memory bundle = vault.getBundle(bundleId);
         assertEq(bundle.settlementProceeds, 200 * UNIT);
         pool.redeemPrincipal(IPrincipalVault(address(vault)), bundleId, 100 * UNIT);
+        assertEq(treasury.feesBySource(keccak256("ORIGINATION")), 500_000);
+        assertEq(pool.realizedYield(), 6 * UNIT);
         vm.prank(borrower);
         vault.redeemResidual(bundleId, 50 * UNIT);
         assertEq(pusd.balanceOf(borrower), 143_500_000);
@@ -130,7 +140,8 @@ contract EventClearLifecycleTest is Test {
 
     function testReplayAndModifiedAmountsRejected() public {
         (bytes32[] memory conditions, uint256[] memory ids, uint256[] memory amounts) = legs();
-        EventClearVault.FinancingQuote memory q = quote(vault.hashLegs(conditions, ids, amounts), 7, block.timestamp + 1);
+        EventClearVault.FinancingQuote memory q =
+            quote(vault.hashLegs(conditions, ids, amounts), 7, block.timestamp + 1);
         bytes memory sig = signature(q);
         vm.prank(borrower);
         vault.openBundle(q, sig, conditions, ids, amounts);
@@ -141,7 +152,8 @@ contract EventClearLifecycleTest is Test {
 
     function testShortfallDoesNotUsePoolAssets() public {
         (bytes32[] memory conditions, uint256[] memory ids, uint256[] memory amounts) = legs();
-        EventClearVault.FinancingQuote memory q = quote(vault.hashLegs(conditions, ids, amounts), 9, block.timestamp + 5 minutes);
+        EventClearVault.FinancingQuote memory q =
+            quote(vault.hashLegs(conditions, ids, amounts), 9, block.timestamp + 5 minutes);
         bytes memory sig = signature(q);
         vm.prank(borrower);
         uint256 bundleId = vault.openBundle(q, sig, conditions, ids, amounts);

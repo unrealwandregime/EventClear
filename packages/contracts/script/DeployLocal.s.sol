@@ -24,12 +24,15 @@ contract DeployLocal is Script {
         new MockResolutionOracle(ctf);
         RelationshipRegistry registry = new RelationshipRegistry(deployer);
         EventClearClaims claims = new EventClearClaims(deployer);
-        EventClearFundingPool pool = new EventClearFundingPool(pusd, deployer, 10_000_000e6, 500_000e6);
-        new EventClearTreasury(deployer);
-        EventClearVault vault =
-            new EventClearVault(pusd, ctf, registry, claims, pool, IRedemptionAdapter(address(adapter)), signer, deployer);
+        EventClearTreasury treasury = new EventClearTreasury(deployer);
+        EventClearFundingPool pool =
+            new EventClearFundingPool(pusd, deployer, address(treasury), 10_000_000e6, 500_000e6);
+        EventClearVault vault = new EventClearVault(
+            pusd, ctf, registry, claims, pool, IRedemptionAdapter(address(adapter)), signer, deployer
+        );
         claims.grantRole(claims.VAULT_ROLE(), address(vault));
         pool.grantRole(pool.VAULT_ROLE(), address(vault));
+        treasury.grantRole(treasury.RECORDER_ROLE(), address(pool));
         vm.stopBroadcast();
     }
 }

@@ -3,12 +3,16 @@ from __future__ import annotations
 import time
 import uuid
 import secrets
+import hmac
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
+from datetime import datetime
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
+from redis.asyncio import from_url as redis_from_url
+from redis.exceptions import RedisError
 from eth_account import Account
 from eth_account.messages import encode_defunct
 
@@ -23,6 +27,7 @@ from .settings import Settings
 settings = Settings()
 settings.validate()
 store = create_store(settings)
+redis_client = redis_from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None
 REQUESTS = Counter("eventclear_api_requests_total", "API requests", ["method", "path", "status"])
 LATENCY = Histogram("eventclear_api_latency_seconds", "API request latency", ["path"])
 rate_windows: dict[str, deque[float]] = defaultdict(deque)
@@ -31,7 +36,12 @@ rate_windows: dict[str, deque[float]] = defaultdict(deque)
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     settings.validate()
+    if settings.mode == "polygon-mainnet":
+        if redis_client is None or not await redis_client.ping():
+            raise RuntimeError("REDIS_RATE_LIMITER_UNAVAILABLE")
     yield
+    if redis_client is not None:
+        await redis_client.aclose()
 
 
 app = FastAPI(title="EventClear API", version="1.0.0", lifespan=lifespan)
@@ -43,12 +53,24 @@ async def controls(request: Request, call_next):
     correlation_id = request.headers.get("x-correlation-id", str(uuid.uuid4()))
     key = request.client.host if request.client else "unknown"
     now = time.monotonic()
-    window = rate_windows[key]
-    while window and window[0] < now - 60:
-        window.popleft()
-    if len(window) >= 120:
-        return JSONResponse(status_code=429, content={"error": {"code": "RATE_LIMITED", "correlationId": correlation_id}})
-    window.append(now)
+    if redis_client is not None:
+        try:
+            rate_key = f"eventclear:rate:{key}:{int(time.time() // 60)}"
+            count = await redis_client.incr(rate_key)
+            if count == 1:
+                await redis_client.expire(rate_key, 61)
+            if count > 120:
+                return JSONResponse(status_code=429, content={"error": {"code": "RATE_LIMITED", "correlationId": correlation_id}})
+        except RedisError:
+            if settings.mode == "polygon-mainnet":
+                return JSONResponse(status_code=503, content={"error": {"code": "RATE_LIMITER_UNAVAILABLE", "correlationId": correlation_id}})
+    else:
+        window = rate_windows[key]
+        while window and window[0] < now - 60:
+            window.popleft()
+        if len(window) >= 120:
+            return JSONResponse(status_code=429, content={"error": {"code": "RATE_LIMITED", "correlationId": correlation_id}})
+        window.append(now)
     response = await call_next(request)
     response.headers["x-correlation-id"] = correlation_id
     response.headers["x-content-type-options"] = "nosniff"
@@ -59,8 +81,7 @@ async def controls(request: Request, call_next):
 
 
 def admin(x_admin_token: str | None = Header(default=None)) -> str:
-    expected = __import__("os").environ.get("ADMIN_API_TOKEN", "local-admin")
-    if x_admin_token != expected:
+    if x_admin_token is None or not hmac.compare_digest(x_admin_token, settings.admin_api_token):
         raise HTTPException(status_code=403, detail={"code": "ADMIN_REQUIRED"})
     return "admin"
 
@@ -87,12 +108,40 @@ def siwe_verify(payload: dict):
     message = payload.get("message", "")
     signature = payload.get("signature", "")
     nonce = payload.get("nonce", "")
-    if not store.consume_siwe_nonce(nonce, time.time()) or f"Nonce: {nonce}" not in message:
+    now = time.time()
+    if not store.consume_siwe_nonce(nonce, now):
         raise HTTPException(401, detail={"code": "INVALID_SIWE_NONCE"})
+    lines = message.splitlines()
+    fields = {
+        line.split(": ", 1)[0]: line.split(": ", 1)[1]
+        for line in lines
+        if ": " in line
+    }
+    try:
+        claimed_address = lines[1].strip()
+        issued_at = datetime.fromisoformat(fields["Issued At"].replace("Z", "+00:00"))
+        if (
+            lines[0] != f"{settings.siwe_domain} wants you to sign in with your Ethereum account:"
+            or fields.get("URI") != settings.siwe_uri
+            or fields.get("Version") != "1"
+            or int(fields.get("Chain ID", "0")) != settings.chain_id
+            or fields.get("Nonce") != nonce
+            or issued_at.tzinfo is None
+            or issued_at.timestamp() > now + 60
+            or issued_at.timestamp() < now - 600
+        ):
+            raise ValueError
+        expiration = fields.get("Expiration Time")
+        if expiration and datetime.fromisoformat(expiration.replace("Z", "+00:00")).timestamp() <= now:
+            raise ValueError
+    except (IndexError, KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(401, detail={"code": "INVALID_SIWE_MESSAGE"}) from exc
     try:
         recovered = Account.recover_message(encode_defunct(text=message), signature=signature)
     except Exception as exc:
         raise HTTPException(401, detail={"code": "INVALID_SIWE_SIGNATURE"}) from exc
+    if recovered.lower() != claimed_address.lower():
+        raise HTTPException(401, detail={"code": "SIWE_ADDRESS_MISMATCH"})
     token = secrets.token_urlsafe(32)
     store.create_session(token, recovered, time.time() + 3600)
     return {"sessionToken": token, "address": recovered, "expiresIn": 3600}

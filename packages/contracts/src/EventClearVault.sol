@@ -149,7 +149,10 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
             revert InvalidQuote();
         }
         if (quote.expiry < block.timestamp) revert QuoteExpired();
-        if (quote.principalAmount != quote.guaranteedFloor || quote.advanceAmount > quote.principalAmount) {
+        if (
+            quote.principalAmount != quote.guaranteedFloor
+                || quote.advanceAmount + quote.originationFee > quote.principalAmount
+        ) {
             revert InvalidQuote();
         }
         if (quote.bundleHash != hashLegs(conditionIds, tokenIds, amounts)) revert InvalidQuote();
@@ -197,7 +200,7 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
         _amounts[bundleId] = amounts;
 
         positions.safeBatchTransferFrom(msg.sender, address(this), tokenIds, amounts, "");
-        fundingPool.fundAdvance(bundleId, msg.sender, quote.advanceAmount);
+        fundingPool.fundAdvance(bundleId, msg.sender, quote.advanceAmount, quote.originationFee);
         claims.mint(address(fundingPool), bundleId, claims.PRINCIPAL(), quote.principalAmount);
         claims.mint(msg.sender, bundleId, claims.RESIDUAL(), quote.principalAmount);
         emit BundleOpened(bundleId, msg.sender, quote.relationshipDefinitionHash);
@@ -233,7 +236,9 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
 
     function redeemPrincipal(uint256 bundleId, uint256 amount) external nonReentrant {
         Bundle storage bundle = bundles[bundleId];
-        if (bundle.status != BundleStatus.SETTLED && bundle.status != BundleStatus.SHORTFALL) revert InvalidBundleState();
+        if (bundle.status != BundleStatus.SETTLED && bundle.status != BundleStatus.SHORTFALL) {
+            revert InvalidBundleState();
+        }
         uint256 payout = amount * bundle.principalAllocation / bundle.principalAmount;
         if (amount == 0 || payout == 0) revert NothingToClaim();
         bundle.principalClaimed += payout;
@@ -244,7 +249,9 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
 
     function redeemResidual(uint256 bundleId, uint256 amount) external nonReentrant {
         Bundle storage bundle = bundles[bundleId];
-        if (bundle.status != BundleStatus.SETTLED && bundle.status != BundleStatus.SHORTFALL) revert InvalidBundleState();
+        if (bundle.status != BundleStatus.SETTLED && bundle.status != BundleStatus.SHORTFALL) {
+            revert InvalidBundleState();
+        }
         uint256 payout = amount * bundle.residualAllocation / bundle.principalAmount;
         if (amount == 0) revert NothingToClaim();
         bundle.residualClaimed += payout;

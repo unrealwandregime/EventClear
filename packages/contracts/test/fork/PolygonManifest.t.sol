@@ -13,8 +13,19 @@ interface IERC20MetadataView {
     function decimals() external view returns (uint8);
 }
 
+interface ICollateralAdapterView {
+    function CONDITIONAL_TOKENS() external view returns (address);
+    function COLLATERAL_TOKEN() external view returns (address);
+    function USDCE() external view returns (address);
+}
+
+interface INegRiskCollateralAdapterView is ICollateralAdapterView {
+    function NEG_RISK_ADAPTER() external view returns (address);
+}
+
 contract PolygonManifestForkTest is Test {
     using stdJson for string;
+
     function addressAt(string memory manifest, string memory name) internal pure returns (address) {
         return manifest.readAddress(string.concat(".contracts.", name, ".address"));
     }
@@ -22,14 +33,18 @@ contract PolygonManifestForkTest is Test {
     function testOfficialContractBytecodeAndInterfaces() public view {
         if (block.chainid != 137) return;
         string memory manifest = vm.readFile("../../config/polygon-mainnet.contracts.json");
-        string[9] memory names = [
+        string[13] memory names = [
             "conditionalTokens",
             "pUSD",
+            "pUSDImplementation",
+            "usdce",
             "ctfCollateralAdapter",
             "negativeRiskCollateralAdapter",
+            "negativeRiskAdapter",
             "ctfExchange",
             "negativeRiskCtfExchange",
             "umaAdapter",
+            "umaAdapterV3",
             "umaOptimisticOracle",
             "positionManager"
         ];
@@ -41,6 +56,19 @@ contract PolygonManifestForkTest is Test {
         address pusd = addressAt(manifest, "pUSD");
         assertEq(IERC20MetadataView(pusd).symbol(), "pUSD");
         assertEq(IERC20MetadataView(pusd).decimals(), 6);
-        assertTrue(IERC165View(addressAt(manifest, "conditionalTokens")).supportsInterface(0xd9b67a26));
+        address ctf = addressAt(manifest, "conditionalTokens");
+        address usdce = addressAt(manifest, "usdce");
+        assertEq(IERC20MetadataView(usdce).decimals(), 6);
+        assertTrue(IERC165View(ctf).supportsInterface(0xd9b67a26));
+        ICollateralAdapterView standard = ICollateralAdapterView(addressAt(manifest, "ctfCollateralAdapter"));
+        assertEq(standard.CONDITIONAL_TOKENS(), ctf);
+        assertEq(standard.COLLATERAL_TOKEN(), pusd);
+        assertEq(standard.USDCE(), usdce);
+        INegRiskCollateralAdapterView negative =
+            INegRiskCollateralAdapterView(addressAt(manifest, "negativeRiskCollateralAdapter"));
+        assertEq(negative.CONDITIONAL_TOKENS(), ctf);
+        assertEq(negative.COLLATERAL_TOKEN(), pusd);
+        assertEq(negative.USDCE(), usdce);
+        assertEq(negative.NEG_RISK_ADAPTER(), addressAt(manifest, "negativeRiskAdapter"));
     }
 }

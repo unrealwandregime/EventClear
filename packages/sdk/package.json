@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@polymarket/client": "latest",
+    "@polymarket/client": "0.2.0",
     "viem": "^2.33.2"
   }
 }

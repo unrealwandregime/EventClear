@@ -12,9 +12,13 @@ export function validateRuntime(env: NodeJS.ProcessEnv) {
   const mode = (env.EVENTCLEAR_MODE ?? "local") as OperatingMode;
   if (!["local", "polygon-fork", "polygon-mainnet"].includes(mode)) throw new Error("INVALID_OPERATING_MODE");
   if (mode === "polygon-mainnet") {
-    const missing = requiredMainnetFlags.filter((key) => env[key] !== "true");
+    const missing: string[] = requiredMainnetFlags.filter((key) => env[key] !== "true");
+    if (env.EVENTCLEAR_STORE !== "postgres") missing.push("EVENTCLEAR_STORE");
+    if (env.RISK_SIGNER_BACKEND !== "kms") missing.push("RISK_SIGNER_BACKEND");
     if (missing.length) throw new Error(`MAINNET_SAFETY_GATE_FAILED:${missing.join(",")}`);
     if (env.CHAIN_ID !== "137") throw new Error("MAINNET_CHAIN_ID_MUST_BE_137");
+    if (!(env.SIWE_URI ?? "").startsWith("https://")) throw new Error("MAINNET_SIWE_URI_MUST_BE_HTTPS");
+    if ((env.POLYGON_RPC_URLS ?? "").split(",").filter(Boolean).length < 2) throw new Error("MAINNET_REQUIRES_RPC_FAILOVER");
   }
   return { mode, chainId: Number(env.CHAIN_ID ?? (mode === "local" ? 31337 : 137)) };
 }

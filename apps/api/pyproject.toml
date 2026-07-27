@@ -10,7 +10,8 @@ dependencies = [
   "eth-account==0.13.7",
   "prometheus-client==0.22.1",
   "psycopg[binary]==3.2.9",
-  "redis==6.2.0"
+  "redis==6.2.0",
+  "boto3==1.40.0"
 ]
 
 [tool.pytest.ini_options]

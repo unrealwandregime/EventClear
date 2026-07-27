@@ -1,16 +1,35 @@
 import os
 import unittest
+from datetime import UTC, datetime
 
 os.environ["EVENTCLEAR_MODE"] = "local"
 from fastapi.testclient import TestClient
 from eventclear_api.main import app, store
 from eventclear_api.settings import Settings
+from eventclear_api.signer import _recoverable_signature
+from eth_account import Account
+from eth_account.messages import encode_defunct
+from eth_utils import keccak
 
 
 class ApiTests(unittest.TestCase):
     def setUp(self):
         store.reset()
         self.client = TestClient(app)
+
+    @staticmethod
+    def siwe_message(address: str, nonce: str) -> str:
+        issued_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+        return (
+            "eventclear.local wants you to sign in with your Ethereum account:\n"
+            f"{address}\n\n"
+            "Sign in to EventClear.\n\n"
+            "URI: http://eventclear.local\n"
+            "Version: 1\n"
+            "Chain ID: 31337\n"
+            f"Nonce: {nonce}\n"
+            f"Issued At: {issued_at}"
+        )
 
     def test_health_and_correlation(self):
         response = self.client.get("/api/v1/health", headers={"x-correlation-id": "test-id"})
@@ -34,9 +53,10 @@ class ApiTests(unittest.TestCase):
 
     def test_siwe_nonce_is_single_use_even_after_failed_signature(self):
         nonce = self.client.post("/api/v1/auth/siwe/nonce").json()["nonce"]
+        address = "0x0000000000000000000000000000000000000001"
         payload = {
             "nonce": nonce,
-            "message": f"eventclear.local wants you to sign in\nNonce: {nonce}",
+            "message": self.siwe_message(address, nonce),
             "signature": "0xdeadbeef",
         }
         first = self.client.post("/api/v1/auth/siwe/verify", json=payload)
@@ -46,10 +66,42 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(second.status_code, 401)
         self.assertEqual(second.json()["detail"]["code"], "INVALID_SIWE_NONCE")
 
+    def test_valid_siwe_message_binds_domain_chain_nonce_and_address(self):
+        private_key = "0x59c6995e998f97a5a0044976f0945389dc9e86dae88c7a8412f4603b6b78690d"
+        account = Account.from_key(private_key)
+        nonce = self.client.post("/api/v1/auth/siwe/nonce").json()["nonce"]
+        message = self.siwe_message(account.address, nonce)
+        signature = Account.sign_message(encode_defunct(text=message), private_key=private_key).signature.hex()
+        response = self.client.post(
+            "/api/v1/auth/siwe/verify",
+            json={"nonce": nonce, "message": message, "signature": "0x" + signature.removeprefix("0x")},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["address"], account.address)
+
     def test_mainnet_rejects_memory_store(self):
         production = Settings(mode="polygon-mainnet", chain_id=137, store_backend="memory")
         with self.assertRaisesRegex(RuntimeError, "EVENTCLEAR_STORE=postgres"):
             production.validate()
+
+    def test_mainnet_rejects_raw_local_signer(self):
+        production = Settings(
+            mode="polygon-mainnet",
+            chain_id=137,
+            store_backend="postgres",
+            database_url="postgresql://example.invalid/eventclear",
+            signer_backend="local",
+        )
+        with self.assertRaisesRegex(RuntimeError, "RISK_SIGNER_BACKEND=kms"):
+            production.validate()
+
+    def test_kms_signature_recovery_encoding(self):
+        private_key = "0x59c6995e998f97a5a0044976f0945389dc9e86dae88c7a8412f4603b6b78690d"
+        digest = keccak(b"eventclear-kms-test")
+        signed = Account._sign_hash(digest, private_key=private_key)
+        encoded = _recoverable_signature(digest, signed.r, signed.s, Account.from_key(private_key).address)
+        self.assertEqual(len(encoded), 65)
+        self.assertIn(encoded[-1], (27, 28))
 
     def test_unknown_market_structured_error(self):
         response = self.client.get("/api/v1/markets/missing")

@@ -20,6 +20,7 @@ test("server-renders EventClear product content", async () => {
   assert.match(html, /<title>EventClear/);
   assert.match(html, /Unlock guaranteed value before markets resolve/);
   assert.match(html, /Compression opportunities/);
-  assert.match(html, /Experimental MVP/);
+  assert.match(html, /Mainnet release candidate/);
+  assert.match(html, /execution gated pending audit and multisig activation/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/);
 });

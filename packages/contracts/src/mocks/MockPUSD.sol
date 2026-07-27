@@ -2,9 +2,21 @@
 pragma solidity 0.8.26;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract MockPUSD is ERC20 {
     constructor() ERC20("Polymarket USD", "pUSD") {}
-    function decimals() public pure override returns (uint8) { return 6; }
-    function mint(address to, uint256 amount) external { _mint(to, amount); }
+
+    function decimals() public pure override returns (uint8) {
+        return 6;
+    }
+
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+
+    function wrap(address asset, address to, uint256 amount, address, bytes calldata) external {
+        require(IERC20(asset).balanceOf(address(this)) >= amount, "underlying not received");
+        _mint(to, amount);
+    }
 }
