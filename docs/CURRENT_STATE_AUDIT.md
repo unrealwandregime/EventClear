@@ -1,7 +1,8 @@
 # EventClear Current-State Audit
 
 Audit date: 2026-07-27  
-Baseline commit: `ff1955831bb2be3cea69da8e62096c024656720a`  
+Baseline commit: `7d65bb3bf8fd5d714a3c8a536389ebc5f2e76b10`
+
 Target: EventClear v1 controlled, allowlisted production beta for `CRYPTO_THRESHOLD_V1`
 
 ## Executive assessment
@@ -237,3 +238,62 @@ Milestone 0 has a passing technical baseline once this audit and
 `docs/BUILD_STATUS.md` are committed. Milestones 1–7 remain incomplete. The
 current public site is a product interface and read-only release candidate; it
 must not be represented as a capital-enabled protocol.
+
+## 2026-07-27 staging-v1 continuation audit
+
+The repository has advanced materially since the original baseline: live
+Gamma/Data/CLOB reads, a persistent market-freshness cache, a reorg-aware
+indexer, ERC-4626 accounting, an onchain `RiskPolicy`, exact isolated Polymarket
+redemption, a broadcast local lifecycle and a complete pinned Polygon-fork
+lifecycle now exist. The public Sites deployment is intentionally read-only.
+
+Current frontend behavior:
+
+- Public metrics, markets, wallet positions, relationships, bundles and pool
+  state are API-backed, with unavailable live protocol state shown explicitly.
+- Wallet connection is EIP-1193 only. SIWE, selected-leg analysis, proof
+  download/verification, quote issuance, approval, bundle opening, settlement
+  and claim redemption are not connected end to end.
+- `EventClearApp.tsx` remains monolithic and still contains a fake active-bundle
+  heading, hardcoded proof/fee/version text and nonfunctional action buttons.
+
+Current API behavior:
+
+- SIWE primitives, trusted relationship loading, deterministic analysis,
+  EIP-712 quotes, public Polymarket reads, CLOB freshness and executable pool
+  and claim calldata exist.
+- Quote creation is not session-protected and does not yet revalidate ERC-1155
+  ownership, exact EOA wallet equality, resolution state, contract liquidity or
+  exposure immediately before signing.
+- Bundle-open preflight/preparation and genuine indexed settlement preparation
+  remain incomplete.
+
+Current contract/security findings:
+
+- `EventClearVault.openBundle` permits a distinct `positionWallet`; an attacker
+  could target a victim EOA that had previously approved the vault.
+- Financing quotes do not commit to a position-wallet authorization object.
+- `RiskPolicy` incorrectly uses quote expiry as bundle duration.
+- Relationship metadata does not commit to earliest/latest resolution time.
+- The pool transfers the quoted origination fee to treasury before settlement,
+  including bundles that can later shortfall.
+- Smart-wallet financing must remain disabled until an official control path is
+  independently verified.
+
+Current test state before this sprint:
+
+- Solidity: 16 local tests pass, including 512 fuzz cases and 16,384 invariant
+  handler calls.
+- Polygon fork: 3 tests pass at block `90963627`.
+- Python solver/API: 30 tests pass.
+- TypeScript lint, typecheck, build, indexer tests and rendered HTML pass.
+- Browser E2E and a Docker Compose lifecycle have not been proven on this host.
+
+Files expected to change in this sprint:
+
+- Contracts/tests/scripts under `packages/contracts/`.
+- API, solver and tests under `apps/api/` and `apps/solver/`.
+- Indexer and tests under `apps/indexer/`.
+- Existing frontend modules under `app/` without redesigning the visual system.
+- CI, environment and staging files under `.github/` and `infrastructure/`.
+- `README.md`, `DECISIONS.md`, and the status/runbook documents under `docs/`.

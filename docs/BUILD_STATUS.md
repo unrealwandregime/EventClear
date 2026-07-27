@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-27  
 Target release: EventClear v1 controlled, allowlisted production beta  
-Current source baseline: `b7e6bdad525dd399a2b89661757d0cec13076804`
+Current source baseline: `7d65bb3bf8fd5d714a3c8a536389ebc5f2e76b10`
 
 This is the resumable source of truth. A milestone is operational only when its
 acceptance commands and required behavior have been executed.
@@ -16,6 +16,23 @@ acceptance commands and required behavior have been executed.
 | Legal release approved | No |
 | Mainnet capital activated | No |
 | Public read-only frontend deployed | Yes, Sites version 5 |
+
+## Staging-v1 continuation sprint
+
+Baseline commit: `7d65bb3bf8fd5d714a3c8a536389ebc5f2e76b10`
+
+In progress:
+
+- Strict EOA position-wallet authorization and future smart-wallet signature
+  preparation.
+- Reviewed resolution timestamps and duration enforcement independent of quote
+  expiry.
+- Settlement-only fee realization.
+- Trusted quote pre-sign validation, generated threshold worlds, connected UI,
+  indexer completion, browser E2E, CI and staging preparation.
+
+The public deployment remains `production-readonly`. No EventClear mainnet
+contracts or capital have been activated.
 
 ## Milestone 0 — Existing repository audit
 
