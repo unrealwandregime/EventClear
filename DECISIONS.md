@@ -1,5 +1,21 @@
 # Decisions
 
+## 2026-07-27 — EventClear v1 completion boundary
+
+- The only financing schema authorized in v1 is `CRYPTO_THRESHOLD_V1`.
+- EOA-held standard binary CTF positions are the minimum executable wallet
+  target. Deposit Wallet, Proxy and Safe remain read-only until automated
+  capability tests prove approval and exact ERC-1155 transfer behavior.
+- Seed data is permitted only in `local` and `test`; live modes fail rather than
+  silently substituting demonstrations.
+- Software completion, independent security review, legal approval and capital
+  activation are separate release states.
+- The existing visual identity, FastAPI boundary, Python/Z3 solver, PostgreSQL,
+  Viem indexer scaffold and immutable contract architecture remain the
+  implementation foundation.
+
+## Existing decisions
+
 1. **Fail-closed mainnet.** Mainnet configuration uses official registry addresses, but execution remains gated by five server-side safety variables and live bytecode/interface verification.
 2. **Exact atomic accounting.** Protocol, API, solver, and database quantities use integers or `numeric(78,0)`; no guaranteed-floor path uses floating point.
 3. **Explicit terminal worlds.** Reviewed definitions persist complete payout vectors, including fractional/cancellation states. This makes proofs reproducible and prevents hidden semantic defaults.
