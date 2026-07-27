@@ -46,3 +46,16 @@
     inside the gross pool cost basis and may be paid only from financing return
     actually received at settlement. Any unearned portion is returned to the
     borrower. Break-even and shortfall settlements pay no protocol fees.
+18. **Canonical post-transaction reads.** A wallet receipt confirms chain
+    inclusion, not application state. The UI retains recoverable transaction
+    stages and waits for the indexer to project escrow, funding, claims,
+    settlement and redemption events before presenting indexed confirmation.
+19. **Historical fork transition.** The fork lifecycle originates while the
+    reviewed condition is unresolved at Polygon block `90000000`, then advances
+    to resolved block `90600000`. EventClear contracts remain persistent across
+    the fork transition; injected escrow is restored after the fork roll because
+    the external CTF account must remain non-persistent to observe real
+    resolution state.
+20. **Public surface remains read-only.** The Sites deployment may expose live
+    market and position reads, but quote signing and all capital writes remain
+    disabled in `production-readonly`, independently of frontend controls.

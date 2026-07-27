@@ -52,9 +52,9 @@ contract RelationshipRegistry is AccessControl {
         if (definitionHash == bytes32(0) || version == 0) revert InvalidStatus();
         if (definitions[definitionHash].status != Status.NONE) revert AlreadyRegistered();
         if (validUntil != 0 && validUntil <= validFrom) revert InvalidInterval();
-        if (
-            earliestResolutionTimestamp == 0 || latestResolutionTimestamp < earliestResolutionTimestamp
-        ) revert InvalidInterval();
+        if (earliestResolutionTimestamp == 0 || latestResolutionTimestamp < earliestResolutionTimestamp) {
+            revert InvalidInterval();
+        }
         definitions[definitionHash] = Definition(
             version,
             Status.APPROVED,

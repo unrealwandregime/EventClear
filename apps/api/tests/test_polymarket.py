@@ -73,7 +73,9 @@ class PolymarketGatewayTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_price_history_rejects_non_monotonic_data(self):
         def handler(_: httpx.Request) -> httpx.Response:
-            return httpx.Response(200, json={"history": [{"t": 2, "p": "0.5"}, {"t": 1, "p": "0.6"}]})
+            return httpx.Response(
+                200, json={"history": [{"t": 2, "p": "0.5"}, {"t": 1, "p": "0.6"}]}
+            )
 
         with self.assertRaisesRegex(RuntimeError, "POLYMARKET_HISTORY_ORDER_INVALID"):
             await self.gateway(handler).price_history("42")
@@ -82,7 +84,9 @@ class PolymarketGatewayTests(unittest.IsolatedAsyncioTestCase):
         def handler(_: httpx.Request) -> httpx.Response:
             raise AssertionError("network should not be called")
 
-        with self.assertRaisesRegex(RuntimeError, "POLYMARKET_HISTORY_INTERVAL_INVALID"):
+        with self.assertRaisesRegex(
+            RuntimeError, "POLYMARKET_HISTORY_INTERVAL_INVALID"
+        ):
             await self.gateway(handler).price_history("42", interval="quarter")
 
     async def test_rpc_contract_reads_fail_over_and_decode_uints(self):
@@ -91,7 +95,9 @@ class PolymarketGatewayTests(unittest.IsolatedAsyncioTestCase):
                 return httpx.Response(503)
             payload = json.loads(request.content)
             self.assertEqual(payload["method"], "eth_call")
-            return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": "0x" + f"{42:064x}"})
+            return httpx.Response(
+                200, json={"jsonrpc": "2.0", "id": 1, "result": "0x" + f"{42:064x}"}
+            )
 
         gateway = PolymarketReadGateway(
             "https://gamma.test",

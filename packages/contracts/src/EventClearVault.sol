@@ -124,7 +124,7 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
     error NothingToClaim();
 
     event BundleOpened(uint256 indexed bundleId, address indexed positionWallet, bytes32 indexed relationshipHash);
-    event PositionsEscrowed(uint256 indexed bundleId, uint256[] tokenIds, uint256[] amounts);
+    event PositionsEscrowed(uint256 indexed bundleId, bytes32[] conditionIds, uint256[] tokenIds, uint256[] amounts);
     event AdvanceFunded(uint256 indexed bundleId, uint256 grossAdvance, uint256 originationFee, uint256 netAdvance);
     event ClaimsMinted(uint256 indexed bundleId, uint256 principalSupply, uint256 residualSupply);
     event SettlementStarted(uint256 indexed bundleId);
@@ -370,7 +370,7 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
         claims.mint(address(fundingPool), bundleId, claims.PRINCIPAL(), quote.principalAmount);
         claims.mint(quote.borrower, bundleId, claims.RESIDUAL(), RESIDUAL_SHARE_SUPPLY);
         emit BundleOpened(bundleId, quote.positionWallet, quote.relationshipDefinitionHash);
-        emit PositionsEscrowed(bundleId, tokenIds, amounts);
+        emit PositionsEscrowed(bundleId, conditionIds, tokenIds, amounts);
         emit AdvanceFunded(bundleId, quote.grossAdvance, quote.originationFee, quote.netAdvance);
         emit ClaimsMinted(bundleId, quote.principalAmount, RESIDUAL_SHARE_SUPPLY);
     }

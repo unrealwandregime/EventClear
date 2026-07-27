@@ -1,8 +1,8 @@
 # EventClear Build Status
 
 Last updated: 2026-07-27  
-Target release: EventClear v1 controlled, allowlisted production beta  
-Current source baseline: `7d65bb3bf8fd5d714a3c8a536389ebc5f2e76b10`
+Target release: EventClear staging-ready v1 for reviewed standard crypto-threshold positions
+Sprint baseline: `7d65bb3bf8fd5d714a3c8a536389ebc5f2e76b10`
 
 This is the resumable source of truth. A milestone is operational only when its
 acceptance commands and required behavior have been executed.
@@ -15,7 +15,7 @@ acceptance commands and required behavior have been executed.
 | Independent security review complete | No |
 | Legal release approved | No |
 | Mainnet capital activated | No |
-| Public read-only frontend deployed | Yes, Sites version 5 |
+| Public read-only frontend deployed | Yes; refresh pending for this source revision |
 
 ## Staging-v1 continuation sprint
 
@@ -23,8 +23,8 @@ Baseline commit: `7d65bb3bf8fd5d714a3c8a536389ebc5f2e76b10`
 
 In progress:
 
-- Connected UI,
-  indexer completion, browser E2E, CI and staging preparation.
+- Linux Docker lifecycle verification, visible GitHub Actions verification,
+  public Sites refresh and external review.
 
 The public deployment remains `production-readonly`. No EventClear mainnet
 contracts or capital have been activated.
@@ -69,6 +69,23 @@ Completed in this sprint:
   quantities, strict/inclusive boundaries, fractional states, duplicate
   thresholds, contradictions, missing/extra reviewed regions, reordered
   predicates and modified rule hashes.
+- The connected UI now performs Polygon-chain verification, SIWE session
+  creation/restoration, wallet-capability discovery, exact position selection,
+  server-side analysis, proof download/reproduction, quote confirmation,
+  approval receipt confirmation, bundle submission, settlement, claim
+  redemption and allowlisted ERC-4626 deposit/withdrawal preparation.
+- Transaction state is persisted locally and reconciled with canonical indexed
+  events after receipt; bundle, claim and pool views consume indexer read
+  models, including transferred claim balances and LP share accounts.
+- The indexer projects the complete v1 event surface, rebuilds canonical read
+  models after reorg rollback, retries dead letters, and tests duplicate logs,
+  restarts, removed logs, reconciliation and multi-contract ordering.
+- Playwright covers the successful UI path through indexed bundle opening and
+  refresh recovery plus signature rejection, wrong chain, expired quote,
+  changed balance, insufficient pool liquidity and reverted transactions.
+- The real Polygon fork lifecycle now originates at block `90000000`, advances
+  to resolved state at block `90600000`, and completes vault, pool, treasury,
+  principal and residual accounting against deployed Polygon dependencies.
 
 ## Milestone 0 — Existing repository audit
 
@@ -105,7 +122,7 @@ Results:
 - Exact `make` commands were not executed because GNU Make is unavailable on
   this Windows host; the underlying commands passed.
 
-Remaining blocker: commit this milestone and record the resulting hash.  
+Remaining blocker: none for the historical audit milestone.
 Relevant baseline commit: `ff1955831bb2be3cea69da8e62096c024656720a`  
 Milestone commit: `abb12300f689d7b712026c444b366b4858bbb709`
 Genuinely operational: **Yes for audit/baseline only.**
@@ -298,11 +315,25 @@ Remaining blockers:
 Relevant commit: pending  
 Genuinely operational: **No.**
 
+## Current verification snapshot
+
+- Frontend lint, typecheck and build: passed locally.
+- Python API/solver: 49 passed locally.
+- Indexer: 7 passed locally.
+- Playwright: 7 passed locally.
+- Solidity local/fuzz/invariant: 33 passed, including 512 fuzz runs and 16,384
+  invariant handler calls.
+- Polygon fork: 3 passed against a public Polygon archive RPC.
+- Docker Compose: not run on this Windows host because Docker is unavailable;
+  the Linux CI job executes `make install`, `make test` and
+  `make demo-lifecycle`.
+- GitHub Actions: pending push and visible green run.
+
 ## Next actionable work
 
-1. Run the Compose topology and migrations on a Docker-capable host.
-2. Add browser wallet E2E and indexer reorg integration coverage.
-3. Complete CLOB/history ingestion and immutable relationship-repository solver
-   loading.
-4. Add the negative-risk read-only fork fixture while keeping originations
-   disabled.
+1. Push the verified commit and require all GitHub Actions jobs to pass.
+2. Run the Compose topology and migrations on the Linux runner.
+3. Complete independent professional security and legal review.
+4. Configure production multisigs, KMS, monitoring and a controlled allowlist.
+5. Keep public capital disabled until every activation gate is independently
+   approved.

@@ -30,36 +30,64 @@ def predicate(condition_id: str, threshold: int, comparator: str = "GT") -> dict
     }
 
 
-def threshold_request(low_amount: int, high_no_amount: int, *, compatible: bool = True) -> SolverRequest:
+def threshold_request(
+    low_amount: int, high_no_amount: int, *, compatible: bool = True
+) -> SolverRequest:
     worlds = [
-        {"worldId": "below", "assignments": {"priceBand": 0}, "payoutsAtomicByToken": {"low-yes": "0", "high-no": str(UNIT)}},
-        {"worldId": "middle", "assignments": {"priceBand": 1}, "payoutsAtomicByToken": {"low-yes": str(UNIT), "high-no": str(UNIT)}},
-        {"worldId": "above", "assignments": {"priceBand": 2}, "payoutsAtomicByToken": {"low-yes": str(UNIT), "high-no": "0"}},
-    ]
-    return SolverRequest.model_validate({
-        "relationshipDefinitionHash": DEFINITION_HASH,
-        "definitionVersion": 1,
-        "legs": [
-            {"conditionId": "condition-low", "tokenId": "low-yes", "outcome": "YES", "amountAtomic": str(low_amount * UNIT)},
-            {"conditionId": "condition-high", "tokenId": "high-no", "outcome": "NO", "amountAtomic": str(high_no_amount * UNIT)},
-        ],
-        "payoutModel": {
-            "definitionHash": DEFINITION_HASH,
-            "definitionVersion": 1,
-            "ruleDocumentHash": RULE_HASH,
-            "predicates": [
-                predicate("condition-low", 100),
-                predicate("condition-high", 150),
-            ],
-            "allowedTokens": {
-                "low-yes": {"conditionId": "condition-low", "outcome": "YES"},
-                "high-no": {"conditionId": "condition-high", "outcome": "NO"},
-            },
-            "validWorlds": worlds,
-            "compatibilityChecksPassed": compatible,
-            "incompatibilityReasons": [] if compatible else ["OBSERVATION_TYPE_MISMATCH"],
+        {
+            "worldId": "below",
+            "assignments": {"priceBand": 0},
+            "payoutsAtomicByToken": {"low-yes": "0", "high-no": str(UNIT)},
         },
-    })
+        {
+            "worldId": "middle",
+            "assignments": {"priceBand": 1},
+            "payoutsAtomicByToken": {"low-yes": str(UNIT), "high-no": str(UNIT)},
+        },
+        {
+            "worldId": "above",
+            "assignments": {"priceBand": 2},
+            "payoutsAtomicByToken": {"low-yes": str(UNIT), "high-no": "0"},
+        },
+    ]
+    return SolverRequest.model_validate(
+        {
+            "relationshipDefinitionHash": DEFINITION_HASH,
+            "definitionVersion": 1,
+            "legs": [
+                {
+                    "conditionId": "condition-low",
+                    "tokenId": "low-yes",
+                    "outcome": "YES",
+                    "amountAtomic": str(low_amount * UNIT),
+                },
+                {
+                    "conditionId": "condition-high",
+                    "tokenId": "high-no",
+                    "outcome": "NO",
+                    "amountAtomic": str(high_no_amount * UNIT),
+                },
+            ],
+            "payoutModel": {
+                "definitionHash": DEFINITION_HASH,
+                "definitionVersion": 1,
+                "ruleDocumentHash": RULE_HASH,
+                "predicates": [
+                    predicate("condition-low", 100),
+                    predicate("condition-high", 150),
+                ],
+                "allowedTokens": {
+                    "low-yes": {"conditionId": "condition-low", "outcome": "YES"},
+                    "high-no": {"conditionId": "condition-high", "outcome": "NO"},
+                },
+                "validWorlds": worlds,
+                "compatibilityChecksPassed": compatible,
+                "incompatibilityReasons": []
+                if compatible
+                else ["OBSERVATION_TYPE_MISMATCH"],
+            },
+        }
+    )
 
 
 class SolverTests(unittest.TestCase):
@@ -96,12 +124,16 @@ class SolverTests(unittest.TestCase):
     def test_fractional_resolution_is_conservative(self):
         request = threshold_request(100, 100)
         request.payoutModel.validWorlds.append(
-            request.payoutModel.validWorlds[0].model_copy(update={
-                "worldId": "fifty-fifty",
-                "payoutsAtomicByToken": {"low-yes": "500000", "high-no": "500000"},
-            })
+            request.payoutModel.validWorlds[0].model_copy(
+                update={
+                    "worldId": "fifty-fifty",
+                    "payoutsAtomicByToken": {"low-yes": "500000", "high-no": "500000"},
+                }
+            )
         )
-        request.payoutModel.exceptionalWorlds.append(request.payoutModel.validWorlds[-1])
+        request.payoutModel.exceptionalWorlds.append(
+            request.payoutModel.validWorlds[-1]
+        )
         result = solve(request)
         self.assertEqual(result.guaranteedFloorAtomic, str(100 * UNIT))
 
@@ -110,7 +142,11 @@ class SolverTests(unittest.TestCase):
         request.legs.append(request.legs[0])
         result = solve(request)
         self.assertFalse(result.isSatisfiable)
-        self.assertTrue(any(reason.startswith("DUPLICATE_LEG") for reason in result.rejectionReasons))
+        self.assertTrue(
+            any(
+                reason.startswith("DUPLICATE_LEG") for reason in result.rejectionReasons
+            )
+        )
 
     def test_unknown_token_rejected(self):
         request = threshold_request(100, 100)
@@ -127,36 +163,85 @@ class SolverTests(unittest.TestCase):
         self.assertIn("NO_VALID_TERMINAL_WORLDS", result.rejectionCodes)
 
     def test_three_threshold_ladder(self):
-        request = SolverRequest.model_validate({
-            "relationshipDefinitionHash": DEFINITION_HASH,
-            "relationshipVersion": 2,
-            "legs": [
-                {"conditionId": "low", "tokenId": "low-yes", "outcome": "YES", "amountAtomic": str(100 * UNIT)},
-                {"conditionId": "mid", "tokenId": "mid-no", "outcome": "NO", "amountAtomic": str(60 * UNIT)},
-                {"conditionId": "high", "tokenId": "high-no", "outcome": "NO", "amountAtomic": str(80 * UNIT)},
-            ],
-            "payoutModel": {
-                "definitionHash": DEFINITION_HASH,
-                "definitionVersion": 2,
-                "ruleDocumentHash": RULE_HASH,
-                "predicates": [
-                    predicate("low", 100),
-                    predicate("mid", 150),
-                    predicate("high", 200),
+        request = SolverRequest.model_validate(
+            {
+                "relationshipDefinitionHash": DEFINITION_HASH,
+                "relationshipVersion": 2,
+                "legs": [
+                    {
+                        "conditionId": "low",
+                        "tokenId": "low-yes",
+                        "outcome": "YES",
+                        "amountAtomic": str(100 * UNIT),
+                    },
+                    {
+                        "conditionId": "mid",
+                        "tokenId": "mid-no",
+                        "outcome": "NO",
+                        "amountAtomic": str(60 * UNIT),
+                    },
+                    {
+                        "conditionId": "high",
+                        "tokenId": "high-no",
+                        "outcome": "NO",
+                        "amountAtomic": str(80 * UNIT),
+                    },
                 ],
-                "allowedTokens": {
-                    "low-yes": {"conditionId": "low", "outcome": "YES"},
-                    "mid-no": {"conditionId": "mid", "outcome": "NO"},
-                    "high-no": {"conditionId": "high", "outcome": "NO"},
+                "payoutModel": {
+                    "definitionHash": DEFINITION_HASH,
+                    "definitionVersion": 2,
+                    "ruleDocumentHash": RULE_HASH,
+                    "predicates": [
+                        predicate("low", 100),
+                        predicate("mid", 150),
+                        predicate("high", 200),
+                    ],
+                    "allowedTokens": {
+                        "low-yes": {"conditionId": "low", "outcome": "YES"},
+                        "mid-no": {"conditionId": "mid", "outcome": "NO"},
+                        "high-no": {"conditionId": "high", "outcome": "NO"},
+                    },
+                    "validWorlds": [
+                        {
+                            "worldId": "below",
+                            "assignments": {"band": 0},
+                            "payoutsAtomicByToken": {
+                                "low-yes": "0",
+                                "mid-no": str(UNIT),
+                                "high-no": str(UNIT),
+                            },
+                        },
+                        {
+                            "worldId": "low-mid",
+                            "assignments": {"band": 1},
+                            "payoutsAtomicByToken": {
+                                "low-yes": str(UNIT),
+                                "mid-no": str(UNIT),
+                                "high-no": str(UNIT),
+                            },
+                        },
+                        {
+                            "worldId": "mid-high",
+                            "assignments": {"band": 2},
+                            "payoutsAtomicByToken": {
+                                "low-yes": str(UNIT),
+                                "mid-no": "0",
+                                "high-no": str(UNIT),
+                            },
+                        },
+                        {
+                            "worldId": "above",
+                            "assignments": {"band": 3},
+                            "payoutsAtomicByToken": {
+                                "low-yes": str(UNIT),
+                                "mid-no": "0",
+                                "high-no": "0",
+                            },
+                        },
+                    ],
                 },
-                "validWorlds": [
-                    {"worldId": "below", "assignments": {"band": 0}, "payoutsAtomicByToken": {"low-yes": "0", "mid-no": str(UNIT), "high-no": str(UNIT)}},
-                    {"worldId": "low-mid", "assignments": {"band": 1}, "payoutsAtomicByToken": {"low-yes": str(UNIT), "mid-no": str(UNIT), "high-no": str(UNIT)}},
-                    {"worldId": "mid-high", "assignments": {"band": 2}, "payoutsAtomicByToken": {"low-yes": str(UNIT), "mid-no": "0", "high-no": str(UNIT)}},
-                    {"worldId": "above", "assignments": {"band": 3}, "payoutsAtomicByToken": {"low-yes": str(UNIT), "mid-no": "0", "high-no": "0"}},
-                ],
-            },
-        })
+            }
+        )
         result = solve(request)
         self.assertEqual(result.guaranteedFloorAtomic, str(100 * UNIT))
         self.assertEqual(result.maximumPayoutAtomic, str(240 * UNIT))
@@ -189,7 +274,9 @@ class SolverTests(unittest.TestCase):
 
     def test_strict_and_inclusive_boundaries_generate_distinct_exact_region(self):
         request = threshold_request(100, 100)
-        request.payoutModel.predicates[1] = request.payoutModel.predicates[1].model_copy(
+        request.payoutModel.predicates[1] = request.payoutModel.predicates[
+            1
+        ].model_copy(
             update={
                 "thresholdAtomic": "100",
                 "comparator": "GTE",
@@ -211,12 +298,12 @@ class SolverTests(unittest.TestCase):
 
     def test_lt_and_lte_boundaries_use_exact_integer_comparisons(self):
         request = threshold_request(100, 100)
-        request.payoutModel.predicates[0] = request.payoutModel.predicates[0].model_copy(
-            update={"comparator": "LT"}
-        )
-        request.payoutModel.predicates[1] = request.payoutModel.predicates[1].model_copy(
-            update={"thresholdAtomic": "100", "comparator": "LTE"}
-        )
+        request.payoutModel.predicates[0] = request.payoutModel.predicates[
+            0
+        ].model_copy(update={"comparator": "LT"})
+        request.payoutModel.predicates[1] = request.payoutModel.predicates[
+            1
+        ].model_copy(update={"thresholdAtomic": "100", "comparator": "LTE"})
         worlds, reasons = generate_threshold_worlds(
             request.payoutModel,
             verify_reviewed=False,
@@ -227,9 +314,9 @@ class SolverTests(unittest.TestCase):
 
     def test_duplicate_thresholds_are_collapsed_without_missing_states(self):
         request = threshold_request(100, 100)
-        request.payoutModel.predicates[1] = request.payoutModel.predicates[1].model_copy(
-            update={"thresholdAtomic": "100"}
-        )
+        request.payoutModel.predicates[1] = request.payoutModel.predicates[
+            1
+        ].model_copy(update={"thresholdAtomic": "100"})
         worlds, reasons = generate_threshold_worlds(
             request.payoutModel,
             verify_reviewed=False,
@@ -241,9 +328,9 @@ class SolverTests(unittest.TestCase):
 
     def test_contradictory_predicates_for_one_condition_are_rejected(self):
         request = threshold_request(100, 100)
-        request.payoutModel.predicates[1] = request.payoutModel.predicates[1].model_copy(
-            update={"conditionId": "condition-low"}
-        )
+        request.payoutModel.predicates[1] = request.payoutModel.predicates[
+            1
+        ].model_copy(update={"conditionId": "condition-low"})
         result = solve(request)
         self.assertFalse(result.financingEligible)
         self.assertIn("CONTRADICTORY_PREDICATES", result.rejectionCodes)
@@ -276,9 +363,9 @@ class SolverTests(unittest.TestCase):
 
     def test_modified_rule_hash_is_rejected(self):
         request = threshold_request(100, 100)
-        request.payoutModel.predicates[0] = request.payoutModel.predicates[0].model_copy(
-            update={"ruleDocumentHash": "0x" + "ef" * 32}
-        )
+        request.payoutModel.predicates[0] = request.payoutModel.predicates[
+            0
+        ].model_copy(update={"ruleDocumentHash": "0x" + "ef" * 32})
         result = solve(request)
         self.assertFalse(result.financingEligible)
         self.assertIn("RULE_DOCUMENT_HASH_MISMATCH", result.rejectionCodes)

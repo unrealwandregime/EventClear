@@ -18,26 +18,26 @@ Baseline: `7d65bb3bf8fd5d714a3c8a536389ebc5f2e76b10`
 
 ## Connected lifecycle
 
-- [ ] Connect wallet, switch Polygon, SIWE authenticate and resolve capabilities.
-- [ ] Select exact indexed legs and submit deterministic analysis.
-- [ ] Download and independently verify the canonical proof artifact.
-- [ ] Request a live signed quote with explicit user confirmations.
-- [ ] Confirm ERC-1155 approval receipt and open the exact bundle.
-- [ ] Recover pending transaction state after refresh.
-- [ ] Prepare and submit settlement from verified indexed resolution state.
-- [ ] Redeem partial/full principal and residual claims.
-- [ ] Source bundle, claim and pool views from indexed contract state.
+- [x] Connect wallet, switch Polygon, SIWE authenticate and resolve capabilities.
+- [x] Select exact indexed legs and submit deterministic analysis.
+- [x] Download and independently verify the canonical proof artifact.
+- [x] Request a live signed quote with explicit user confirmations.
+- [x] Confirm ERC-1155 approval receipt and open the exact bundle.
+- [x] Recover pending transaction state after refresh.
+- [x] Prepare and submit settlement from verified indexed resolution state.
+- [x] Redeem partial/full principal and residual claims.
+- [x] Source bundle, claim and pool views from indexed contract state.
 
 ## Verification and operations
 
-- [ ] Add adversarial contract/API/solver/indexer regression coverage.
-- [ ] Add Playwright local lifecycle and failure-path coverage.
-- [ ] Run local Foundry, Python, TypeScript, indexer and browser checks.
+- [x] Add adversarial contract/API/solver/indexer regression coverage.
+- [x] Add Playwright local lifecycle and failure-path coverage.
+- [x] Run local Foundry, Python, TypeScript, indexer and browser checks.
 - [ ] Run Docker Compose lifecycle on a Docker-capable Linux runner.
-- [ ] Run the pinned Polygon-fork lifecycle with the new security model.
+- [x] Run the pinned Polygon-fork lifecycle with the new security model.
 - [ ] Make required GitHub Actions jobs visible and green.
-- [ ] Prepare read-only staging manifests without broadcasting mainnet contracts.
-- [ ] Keep the public deployment labeled `Public read-only alpha`.
+- [x] Prepare read-only staging manifests without broadcasting mainnet contracts.
+- [x] Keep the public deployment labeled `Public read-only alpha`.
 
 ## Explicitly out of scope
 

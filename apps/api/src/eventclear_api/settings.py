@@ -36,10 +36,18 @@ class Settings:
     siwe_domain: str = os.getenv("SIWE_DOMAIN", "eventclear.local")
     siwe_uri: str = os.getenv("SIWE_URI", "http://eventclear.local")
     chain_id: int = int(os.getenv("CHAIN_ID", "31337"))
-    vault_address: str = os.getenv("VAULT_ADDRESS", "0x0000000000000000000000000000000000001000")
-    funding_pool_address: str = os.getenv("FUNDING_POOL_ADDRESS", "0x0000000000000000000000000000000000002000")
-    collateral_token_address: str = os.getenv("COLLATERAL_TOKEN_ADDRESS", "0x0000000000000000000000000000000000003000")
-    adapter_address: str = os.getenv("STANDARD_CTF_ADAPTER_ADDRESS", "0x0000000000000000000000000000000000004000")
+    vault_address: str = os.getenv(
+        "VAULT_ADDRESS", "0x0000000000000000000000000000000000001000"
+    )
+    funding_pool_address: str = os.getenv(
+        "FUNDING_POOL_ADDRESS", "0x0000000000000000000000000000000000002000"
+    )
+    collateral_token_address: str = os.getenv(
+        "COLLATERAL_TOKEN_ADDRESS", "0x0000000000000000000000000000000000003000"
+    )
+    adapter_address: str = os.getenv(
+        "STANDARD_CTF_ADAPTER_ADDRESS", "0x0000000000000000000000000000000000004000"
+    )
     conditional_tokens_address: str = os.getenv(
         "CTF_ADDRESS", "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045"
     )
@@ -58,19 +66,38 @@ class Settings:
     signer_address: str = os.getenv("RISK_SIGNER_ADDRESS", "")
     signer_kms_key_id: str = os.getenv("RISK_SIGNER_KMS_KEY_ID", "")
     signer_kms_region: str = os.getenv("RISK_SIGNER_KMS_REGION", "")
-    quote_lifetime_seconds: int = min(int(os.getenv("QUOTE_LIFETIME_SECONDS", "300")), 300)
+    quote_lifetime_seconds: int = min(
+        int(os.getenv("QUOTE_LIFETIME_SECONDS", "300")), 300
+    )
     advance_ratio_bps: int = int(os.getenv("ADVANCE_RATIO_BPS", "9500"))
     origination_fee_bps: int = int(os.getenv("ORIGINATION_FEE_BPS", "50"))
     contract_manifest_path: str = os.getenv("CONTRACT_MANIFEST_PATH", "")
-    gamma_api_url: str = os.getenv("POLYMARKET_GAMMA_URL", "https://gamma-api.polymarket.com")
-    data_api_url: str = os.getenv("POLYMARKET_DATA_URL", "https://data-api.polymarket.com")
+    gamma_api_url: str = os.getenv(
+        "POLYMARKET_GAMMA_URL", "https://gamma-api.polymarket.com"
+    )
+    data_api_url: str = os.getenv(
+        "POLYMARKET_DATA_URL", "https://data-api.polymarket.com"
+    )
     clob_api_url: str = os.getenv("POLYMARKET_CLOB_URL", "https://clob.polymarket.com")
     market_freshness_seconds: int = int(os.getenv("MARKET_FRESHNESS_SECONDS", "30"))
     polygon_rpc_urls_raw: str = os.getenv("POLYGON_RPC_URLS", "")
+    lp_allowlist_raw: str = os.getenv("LP_ALLOWLIST", "")
 
     @property
     def polygon_rpc_urls(self) -> tuple[str, ...]:
-        return tuple(value.strip() for value in self.polygon_rpc_urls_raw.split(",") if value.strip())
+        return tuple(
+            value.strip()
+            for value in self.polygon_rpc_urls_raw.split(",")
+            if value.strip()
+        )
+
+    @property
+    def lp_allowlist(self) -> frozenset[str]:
+        return frozenset(
+            value.strip().lower()
+            for value in self.lp_allowlist_raw.split(",")
+            if value.strip()
+        )
 
     @property
     def normalized_mode(self) -> str:
@@ -90,16 +117,29 @@ class Settings:
             "production-readonly": "polygon-mainnet",
             "production-controlled": "polygon-mainnet",
         }[mode]
-        path = Path(self.contract_manifest_path or f"config/contracts/{manifest_environment}.json")
+        path = Path(
+            self.contract_manifest_path
+            or f"config/contracts/{manifest_environment}.json"
+        )
         if not path.is_file():
             raise RuntimeError("CONTRACT_MANIFEST_MISSING")
         try:
             manifest = json.loads(path.read_text(encoding="utf-8"))
             supplied_hash = manifest["manifestHash"]
-            payload = {key: value for key, value in manifest.items() if key != "manifestHash"}
-            expected_hash = "0x" + hashlib.sha256(
-                json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
-            ).hexdigest()
+            payload = {
+                key: value for key, value in manifest.items() if key != "manifestHash"
+            }
+            expected_hash = (
+                "0x"
+                + hashlib.sha256(
+                    json.dumps(
+                        payload,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        ensure_ascii=False,
+                    ).encode()
+                ).hexdigest()
+            )
             if supplied_hash != expected_hash:
                 raise RuntimeError("CONTRACT_MANIFEST_HASH_MISMATCH")
             if manifest["environment"] != manifest_environment:
@@ -135,11 +175,16 @@ class Settings:
             raise RuntimeError("INVALID_MARKET_FRESHNESS")
         if self.store_backend == "postgres" and not self.database_url:
             raise RuntimeError("DATABASE_URL_REQUIRED")
-        if self.normalized_mode not in {"local", "test"} and self.store_backend != "postgres":
+        if (
+            self.normalized_mode not in {"local", "test"}
+            and self.store_backend != "postgres"
+        ):
             raise RuntimeError("EVENTCLEAR_STORE=postgres")
         self._validate_manifest()
         if self.normalized_mode == "production-controlled":
-            missing = [key for key in CONTROLLED_PRODUCTION_GATES if os.getenv(key) != "true"]
+            missing = [
+                key for key in CONTROLLED_PRODUCTION_GATES if os.getenv(key) != "true"
+            ]
             if self.store_backend != "postgres":
                 missing.append("EVENTCLEAR_STORE=postgres")
             if not self.database_url:
@@ -158,10 +203,16 @@ class Settings:
                 missing.append("RISK_SIGNER_KMS_KEY_ID")
             if not self.signer_kms_region:
                 missing.append("RISK_SIGNER_KMS_REGION")
+            if not self.lp_allowlist:
+                missing.append("LP_ALLOWLIST")
             if missing or self.chain_id != 137:
                 raise RuntimeError(f"MAINNET_SAFETY_GATE_FAILED:{','.join(missing)}")
         if self.normalized_mode == "production-readonly" and self.chain_id != 137:
             raise RuntimeError("PRODUCTION_READONLY_CHAIN_ID_MUST_BE_137")
-        if self.normalized_mode in {"polygon-fork", "production-readonly", "production-controlled"}:
+        if self.normalized_mode in {
+            "polygon-fork",
+            "production-readonly",
+            "production-controlled",
+        }:
             if len(self.polygon_rpc_urls) < 2:
                 raise RuntimeError("RPC_FAILOVER_CONFIGURED")

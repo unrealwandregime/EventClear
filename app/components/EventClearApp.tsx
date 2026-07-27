@@ -1,18 +1,36 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { encodeFunctionData, erc20Abi } from "viem";
-
-type EthereumProvider = {
-  request(args: { method: string; params?: unknown[] }): Promise<unknown>;
-};
-
-type ApiOpportunity = {
-  relationshipId: string;
-  status: string;
-  guaranteedFloorAtomic?: string;
-  estimatedAdvanceAtomic?: string;
-};
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  decodeFunctionResult,
+  encodeFunctionData,
+  erc20Abi,
+  parseAbi,
+} from "viem";
+import { PositionScanner } from "./scanner/PositionScanner";
+import { LifecycleDrawer } from "./analysis/LifecycleDrawer";
+import { TransactionTimeline } from "./transactions/TransactionTimeline";
+import { usePersistentTransactions } from "../hooks/usePersistentTransactions";
+import {
+  apiFetch,
+  formatPusd,
+  idempotencyKey,
+  waitForIndexedEvents,
+} from "../lib/api";
+import {
+  connectAndAuthenticate,
+  provider,
+  submitAndWait,
+} from "../lib/wallet";
+import type {
+  AnalysisRecord,
+  Hex,
+  PositionRecord,
+  PreparedTransaction,
+  PublicConfig,
+  RelationshipRecord,
+  SelectedLeg,
+} from "../lib/types";
 
 type ProtocolMetrics = {
   available: boolean;
@@ -27,23 +45,20 @@ type BundleRecord = {
   status: string;
   principalAmountAtomic: string;
   grossAdvanceAtomic?: string;
+  netAdvanceAtomic?: string;
   settlementProceedsAtomic?: string;
+  principalAllocationAtomic?: string;
+  residualAllocationAtomic?: string;
+  conditionsResolved?: boolean;
 };
 
-type RelationshipRecord = {
-  id: string;
-  relationshipType: string;
-  version: number;
-  status: string;
-  resolutionRulesHash: string;
-};
-
-type PositionRecord = {
+type ClaimRecord = {
   tokenId: string;
-  outcome: string;
-  amountAtomic: string;
-  currentValueAtomic?: string;
-  title?: string;
+  bundleId: string;
+  claimType: string;
+  holderBalanceAtomic?: string;
+  holderAddress?: string;
+  balances?: Record<string, string>;
 };
 
 type PoolRecord = {
@@ -52,173 +67,342 @@ type PoolRecord = {
   outstandingAdvanceCostBasisAtomic: string;
   outstandingQuotedFeesAtomic: string;
   realizedYieldAtomic: string;
+  realizedLossAtomic: string;
   utilizationBps: number;
 };
 
-type PublicConfig = {
-  chainId: number;
-  mainnetExecution: boolean;
-  fundingPoolAddress?: `0x${string}`;
-  collateralTokenAddress?: `0x${string}`;
+type WalletCapability = {
+  signerAddress: Hex;
+  positionWallet: Hex;
+  walletType: string;
+  executionSupported: boolean;
 };
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
-const formatPusd = (atomic?: string) =>
-  atomic === undefined
-    ? "Unavailable"
-    : (Number(atomic) / 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 2 });
+type PoolAccount = {
+  sharesAtomic: string;
+  availableWithdrawalAtomic: string;
+  allowlisted: boolean;
+};
 
-const navItems = ["Overview", "Scanner", "Bundles", "Pool", "Registry"];
+const erc1155ReadAbi = parseAbi([
+  "function isApprovedForAll(address account, address operator) view returns (bool)",
+]);
+
+const navItems = ["Overview", "Scanner", "Bundles", "Claims", "Pool", "Registry"];
+
+function parsePusdAtomic(value: string) {
+  const [whole = "0", fraction = ""] = value.trim().split(".");
+  if (!/^\d+$/.test(whole) || !/^\d{0,6}$/.test(fraction)) {
+    throw new Error("INVALID_PUSD_AMOUNT");
+  }
+  const amount = BigInt(whole) * 1_000_000n
+    + BigInt(fraction.padEnd(6, "0") || "0");
+  if (amount <= 0n) throw new Error("INVALID_PUSD_AMOUNT");
+  return amount;
+}
 
 export function EventClearApp() {
   const [active, setActive] = useState("Overview");
-  const [selected, setSelected] = useState<ApiOpportunity | null>(null);
-  const [wallet, setWallet] = useState("");
-  const [chainId, setChainId] = useState<number | null>(null);
-  const [walletError, setWalletError] = useState("");
-  const [depositAmount, setDepositAmount] = useState("10000");
-  const [apiOpportunities, setApiOpportunities] = useState<ApiOpportunity[]>([]);
-  const [metrics, setMetrics] = useState<ProtocolMetrics | null>(null);
-  const [bundles, setBundles] = useState<BundleRecord[]>([]);
-  const [relationships, setRelationships] = useState<RelationshipRecord[]>([]);
+  const [wallet, setWallet] = useState<Hex | "">("");
+  const [session, setSession] = useState("");
+  const [config, setConfig] = useState<PublicConfig | null>(null);
+  const [capability, setCapability] = useState<WalletCapability | null>(null);
   const [positions, setPositions] = useState<PositionRecord[]>([]);
+  const [relationships, setRelationships] = useState<RelationshipRecord[]>([]);
+  const [bundles, setBundles] = useState<BundleRecord[]>([]);
+  const [claims, setClaims] = useState<ClaimRecord[]>([]);
+  const [metrics, setMetrics] = useState<ProtocolMetrics | null>(null);
   const [pool, setPool] = useState<PoolRecord | null>(null);
-  const [publicConfig, setPublicConfig] = useState<PublicConfig | null>(null);
-  const [transactionStatus, setTransactionStatus] = useState("");
-  const [dataError, setDataError] = useState("");
+  const [selected, setSelected] = useState<Record<string, string>>({});
+  const [analysis, setAnalysis] = useState<AnalysisRecord | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [depositAmount, setDepositAmount] = useState("100");
+  const [withdrawAmount, setWithdrawAmount] = useState("0");
+  const [claimAmounts, setClaimAmounts] = useState<Record<string, string>>({});
+  const [poolAccount, setPoolAccount] = useState<PoolAccount | null>(null);
+  const [pusdBalance, setPusdBalance] = useState<string>();
+  const [positionApproval, setPositionApproval] = useState<boolean>();
+  const { stages, record } = usePersistentTransactions();
+  const recoveringTransactions = useRef(new Set<string>());
+
+  const approvedRelationship = useMemo(
+    () => relationships.find((item) =>
+      item.status === "APPROVED" && item.relationshipType === "CRYPTO_THRESHOLD_V1"
+    ),
+    [relationships],
+  );
 
   useEffect(() => {
-    let cancelled = false;
-    Promise.all([
-      fetch(`${API_URL}/protocol/metrics`),
-      fetch(`${API_URL}/bundles`),
-      fetch(`${API_URL}/relationships`),
-      fetch(`${API_URL}/pool`),
-      fetch(`${API_URL}/config/public`),
-    ])
-      .then(async ([metricsResponse, bundlesResponse, relationshipsResponse, poolResponse, configResponse]) => {
-        if (!metricsResponse.ok || !bundlesResponse.ok || !relationshipsResponse.ok || !configResponse.ok) {
-          throw new Error("A verified protocol read model is unavailable");
-        }
-        return {
-          metrics: await metricsResponse.json() as ProtocolMetrics,
-          bundles: (await bundlesResponse.json() as { data: BundleRecord[] }).data,
-          relationships: (await relationshipsResponse.json() as { data: RelationshipRecord[] }).data,
-          pool: poolResponse.ok ? await poolResponse.json() as PoolRecord : null,
-          config: await configResponse.json() as PublicConfig,
-        };
-      })
-      .then((payload) => {
-        if (!cancelled) {
-          setMetrics(payload.metrics);
-          setBundles(payload.bundles);
-          setRelationships(payload.relationships);
-          setPool(payload.pool);
-          setPublicConfig(payload.config);
-          setDataError("");
-        }
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) setDataError(error instanceof Error ? error.message : "Protocol API unavailable");
-      });
+    document.documentElement.dataset.eventclearHydrated = "true";
     return () => {
-      cancelled = true;
+      delete document.documentElement.dataset.eventclearHydrated;
     };
   }, []);
 
   useEffect(() => {
-    if (!wallet) return;
-    let cancelled = false;
-    fetch(`${API_URL}/wallets/${wallet}/opportunities`)
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`Scanner API returned ${response.status}`);
-        return response.json() as Promise<{ candidates: ApiOpportunity[] }>;
+    Promise.all([
+      apiFetch<PublicConfig>("/config/public"),
+      apiFetch<ProtocolMetrics>("/protocol/metrics"),
+      apiFetch<{ data: RelationshipRecord[] }>("/relationships"),
+      apiFetch<{ data: BundleRecord[] }>("/bundles"),
+      apiFetch<{ data: ClaimRecord[] }>("/claims"),
+      apiFetch<PoolRecord>("/pool").catch(() => null),
+    ])
+      .then(([publicConfig, protocolMetrics, relationshipData, bundleData, claimData, poolData]) => {
+        setConfig(publicConfig);
+        setMetrics(protocolMetrics);
+        setRelationships(relationshipData.data);
+        setBundles(bundleData.data);
+        setClaims(claimData.data);
+        setPool(poolData);
+        const savedSession = localStorage.getItem("eventclear.session");
+        const savedWallet = localStorage.getItem("eventclear.wallet") as Hex | null;
+        if (savedSession && savedWallet) {
+          apiFetch<{ address: Hex }>("/auth/session", {}, savedSession)
+            .then((restored) => {
+              if (restored.address.toLowerCase() !== savedWallet.toLowerCase()) {
+                throw new Error("SIWE_ADDRESS_MISMATCH");
+              }
+              setSession(savedSession);
+              setWallet(savedWallet);
+            })
+            .catch(() => {
+              localStorage.removeItem("eventclear.session");
+              localStorage.removeItem("eventclear.wallet");
+            });
+        }
       })
-      .then((payload) => {
-        if (!cancelled) setApiOpportunities(payload.candidates);
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) setDataError(error instanceof Error ? error.message : "Scanner API unavailable");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [wallet]);
+      .catch((error: unknown) =>
+        setMessage(error instanceof Error ? error.message : "PROTOCOL_DATA_UNAVAILABLE")
+      );
+  }, []);
 
   useEffect(() => {
     if (!wallet) return;
-    let cancelled = false;
-    fetch(`${API_URL}/wallets/${wallet}/positions`)
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`Position API returned ${response.status}`);
-        return response.json() as Promise<{ positions: PositionRecord[] }>;
+    Promise.all([
+      apiFetch<WalletCapability>(`/wallets/${wallet}`),
+      apiFetch<{ positions: PositionRecord[] }>(`/wallets/${wallet}/positions`),
+      apiFetch<{ data: ClaimRecord[] }>("/claims"),
+      apiFetch<PoolAccount>(`/pool/account/${wallet}`).catch(() => null),
+    ])
+      .then(async ([walletCapability, positionData, claimData, account]) => {
+        setCapability(walletCapability);
+        setPositions(positionData.positions);
+        setClaims(claimData.data.map((item) => ({
+          ...item,
+          holderBalanceAtomic:
+            item.balances?.[wallet.toLowerCase()]
+            ?? (item.holderAddress?.toLowerCase() === wallet.toLowerCase()
+              ? item.holderBalanceAtomic
+              : "0"),
+        })));
+        setPoolAccount(account);
+        if (account) {
+          setWithdrawAmount(formatPusd(account.availableWithdrawalAtomic));
+        }
+        const walletProvider = provider();
+        if (!walletProvider || !config) return;
+        try {
+          const balanceCall = encodeFunctionData({
+            abi: erc20Abi,
+            functionName: "balanceOf",
+            args: [wallet],
+          });
+          const approvalCall = encodeFunctionData({
+            abi: erc1155ReadAbi,
+            functionName: "isApprovedForAll",
+            args: [wallet, config.vaultAddress],
+          });
+          const [balanceResult, approvalResult] = await Promise.all([
+            walletProvider.request({
+              method: "eth_call",
+              params: [{ to: config.collateralTokenAddress, data: balanceCall }, "latest"],
+            }),
+            walletProvider.request({
+              method: "eth_call",
+              params: [{ to: config.conditionalTokensAddress, data: approvalCall }, "latest"],
+            }),
+          ]) as [Hex, Hex];
+          setPusdBalance(decodeFunctionResult({
+            abi: erc20Abi,
+            functionName: "balanceOf",
+            data: balanceResult,
+          }).toString());
+          setPositionApproval(decodeFunctionResult({
+            abi: erc1155ReadAbi,
+            functionName: "isApprovedForAll",
+            data: approvalResult,
+          }));
+        } catch {
+          setPusdBalance(undefined);
+          setPositionApproval(undefined);
+        }
       })
-      .then((payload) => {
-        if (!cancelled) setPositions(payload.positions);
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) setDataError(error instanceof Error ? error.message : "Position API unavailable");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [wallet]);
+      .catch((error: unknown) =>
+        setMessage(error instanceof Error ? error.message : "WALLET_DATA_UNAVAILABLE")
+      );
+  }, [wallet, config]);
 
-  async function connectWallet() {
-    const provider = (window as typeof window & { ethereum?: EthereumProvider }).ethereum;
-    if (!provider) {
-      setWalletError("Install an EIP-1193 wallet to connect.");
-      return;
+  useEffect(() => {
+    for (const stage of stages) {
+      if (
+        stage.status !== "submitted"
+        || !stage.hash
+        || recoveringTransactions.current.has(stage.action)
+      ) continue;
+      const expected =
+        stage.action === "INDEXER_CONFIRMATION_PENDING"
+          ? ["PositionsEscrowed", "AdvanceFunded", "ClaimsMinted"]
+          : stage.action.includes("POOL_DEPOSIT") ? ["Deposit"]
+            : stage.action.includes("POOL_WITHDRAWAL") ? ["Withdraw"]
+              : stage.action.includes("SETTLE_") ? ["PositionsRedeemed"]
+                : stage.action.includes("REDEEM_") ? [] : null;
+      if (expected === null || expected.length === 0) continue;
+      recoveringTransactions.current.add(stage.action);
+      void waitForIndexedEvents(stage.hash, expected)
+        .then(() => {
+          record({ ...stage, status: "confirmed", updatedAt: Date.now() });
+          setMessage(`${stage.action.replaceAll("_", " ")} recovered from indexed state.`);
+        })
+        .catch(() => {
+          recoveringTransactions.current.delete(stage.action);
+        });
     }
+  }, [stages, record]);
+
+  async function connect() {
+    if (!config) return;
     try {
-      const accounts = await provider.request({ method: "eth_requestAccounts" }) as string[];
-      const chain = await provider.request({ method: "eth_chainId" }) as string;
-      setWallet(accounts[0] ?? "");
-      setChainId(Number.parseInt(chain, 16));
-      setWalletError("");
-    } catch {
-      setWalletError("Wallet connection was cancelled.");
+      setMessage("Verify the chain and sign the SIWE session request.");
+      const connected = await connectAndAuthenticate(config);
+      setWallet(connected.address);
+      setSession(connected.session);
+      setMessage("Wallet authenticated.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "WALLET_CONNECTION_FAILED");
+    }
+  }
+
+  async function analyze(legs: SelectedLeg[]) {
+    if (!wallet || !session || !approvedRelationship || !config) return;
+    setBusy(true);
+    setMessage("Generating and verifying every terminal world…");
+    try {
+      const result = await apiFetch<AnalysisRecord>(
+        "/analysis",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            accountWallet: wallet,
+            positionWallet: wallet,
+            chainId: config.chainId,
+            solverRequest: {
+              relationshipDefinitionHash: approvedRelationship.canonicalDefinitionHash,
+              definitionVersion: approvedRelationship.version,
+              legs: legs.map((leg) => ({
+                conditionId: leg.conditionId,
+                tokenId: leg.tokenId,
+                outcome: leg.outcome,
+                amountAtomic: leg.selectedAmountAtomic,
+              })),
+              payoutModel: {},
+            },
+          }),
+        },
+        session,
+      );
+      setAnalysis(result);
+      setMessage("");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "ANALYSIS_FAILED");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function executePrepared(
+    path: string,
+    body: Record<string, string>,
+    action: string,
+    expectedIndexedEvents: string[],
+  ) {
+    if (!wallet || !session || !config) return;
+    try {
+      record({ action, status: "requested", updatedAt: Date.now() });
+      const prepared = await apiFetch<PreparedTransaction>(
+        path,
+        { method: "POST", body: JSON.stringify(body) },
+        session,
+        idempotencyKey(action.toLowerCase()),
+      );
+      record({ action, status: "submitted", updatedAt: Date.now() });
+      const hash = await submitAndWait(wallet, prepared, config);
+      record({ action, hash, status: "confirmed", updatedAt: Date.now() });
+      record({ action: `${action}_INDEXER`, hash, status: "submitted", updatedAt: Date.now() });
+      await waitForIndexedEvents(
+        hash,
+        expectedIndexedEvents,
+      );
+      record({ action: `${action}_INDEXER`, hash, status: "confirmed", updatedAt: Date.now() });
+      setMessage(`${action.replaceAll("_", " ")} confirmed by the indexer.`);
+    } catch (error) {
+      record({ action, status: "failed", updatedAt: Date.now() });
+      setMessage(error instanceof Error ? error.message : `${action}_FAILED`);
     }
   }
 
   async function depositOnchain() {
-    const provider = (window as typeof window & { ethereum?: EthereumProvider }).ethereum;
-    if (!provider || !wallet || !publicConfig?.fundingPoolAddress || !publicConfig.collateralTokenAddress) return;
+    if (!wallet || !session || !config) return;
+    const walletProvider = provider();
+    if (!walletProvider) return;
     try {
-      const [whole = "0", fraction = ""] = depositAmount.trim().split(".");
-      if (!/^\d+$/.test(whole) || !/^\d{0,6}$/.test(fraction)) throw new Error("Use at most 6 decimal places.");
-      const assets = BigInt(whole) * 1_000_000n + BigInt(fraction.padEnd(6, "0") || "0");
-      if (assets <= 0n) throw new Error("Deposit must be positive.");
-      setTransactionStatus("Approve pUSD spending in your wallet.");
-      await provider.request({
+      const amount = parsePusdAtomic(depositAmount);
+      record({ action: "PUSD_APPROVAL", status: "submitted", updatedAt: Date.now() });
+      const approvalHash = await walletProvider.request({
         method: "eth_sendTransaction",
         params: [{
           from: wallet,
-          to: publicConfig.collateralTokenAddress,
+          to: config.collateralTokenAddress,
           data: encodeFunctionData({
             abi: erc20Abi,
             functionName: "approve",
-            args: [publicConfig.fundingPoolAddress, assets],
+            args: [config.fundingPoolAddress, amount],
           }),
+          value: "0x0",
         }],
-      });
-      const response = await fetch(`${API_URL}/pool/prepare-deposit`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ amountAtomic: assets.toString(), receiver: wallet }),
-      });
-      if (!response.ok) throw new Error(`Deposit preflight returned ${response.status}`);
-      const prepared = await response.json() as { transactionRequest: { to: string; data: string; value: string } };
-      setTransactionStatus("Confirm the ERC-4626 deposit in your wallet.");
-      await provider.request({
-        method: "eth_sendTransaction",
-        params: [{ from: wallet, ...prepared.transactionRequest }],
-      });
-      setTransactionStatus("Deposit submitted. Await indexed confirmation.");
+      }) as Hex;
+      for (;;) {
+        const receipt = await walletProvider.request({
+          method: "eth_getTransactionReceipt",
+          params: [approvalHash],
+        }) as { status?: string } | null;
+        if (receipt) {
+          if (receipt.status !== "0x1") throw new Error("PUSD_APPROVAL_REVERTED");
+          break;
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 1_000));
+      }
+      record({ action: "PUSD_APPROVAL", hash: approvalHash, status: "confirmed", updatedAt: Date.now() });
+      await executePrepared(
+        "/pool/prepare-deposit",
+        { amountAtomic: amount.toString(), receiver: wallet },
+        "POOL_DEPOSIT",
+        ["Deposit"],
+      );
     } catch (error) {
-      setTransactionStatus(error instanceof Error ? error.message : "Deposit failed.");
+      setMessage(error instanceof Error ? error.message : "POOL_DEPOSIT_FAILED");
     }
   }
+
+  const statusItems = config ? [
+    ["Environment", config.environment],
+    ["Data source", config.dataSource],
+    ["Execution status", config.executionStatus],
+    ["Contract deployment status", config.contractDeploymentStatus],
+    ["Indexer status", config.indexerStatus],
+    ["Relationship database status", config.relationshipDatabaseStatus],
+  ] : [];
 
   return (
     <main className="shell">
@@ -226,148 +410,250 @@ export function EventClearApp() {
         <div className="brand"><i className="brandmark" /><span>EventClear</span></div>
         <nav className="nav" aria-label="Primary navigation">
           {navItems.map((item) => (
-            <button key={item} data-short={item.slice(0, 3)} className={active === item ? "active" : ""} onClick={() => setActive(item)}>
+            <button
+              key={item}
+              className={active === item ? "active" : ""}
+              onClick={() => setActive(item)}
+            >
               <span>{item}</span>
             </button>
           ))}
         </nav>
-        <div className="notice"><b>Mainnet candidate</b>Unaudited protocol. Execution remains disabled until audit and multisig activation.</div>
+        <div className="notice">
+          <b>Public read-only alpha</b>
+          Live Polymarket market and position data are available. EventClear
+          capital execution remains disabled pending security review,
+          production infrastructure, multisig activation and controlled pilot approval.
+        </div>
       </aside>
 
       <section className="main">
         <header className="topbar">
           <div className="breadcrumb">Protocol / {active}</div>
-          <button className="wallet" onClick={connectWallet}>
-            {wallet ? `${wallet.slice(0, 6)}…${wallet.slice(-4)} · ${chainId === 137 ? "Polygon" : `Chain ${chainId}`}` : "Connect wallet"}
+          <button className="wallet" onClick={connect}>
+            {wallet
+              ? `${wallet.slice(0, 6)}…${wallet.slice(-4)} · ${capability?.walletType ?? "wallet"}`
+              : "Connect wallet + SIWE"}
           </button>
         </header>
 
         <div className="content">
           <div className="release-strip">
-            <span><i /> Mainnet release candidate</span>
-            <b>Standard markets only · execution gated pending audit and multisig activation</b>
+            <span><i /> Public read-only alpha</span>
+            <b>Standard binary markets only · public capital execution disabled</b>
           </div>
-          {walletError && <p className="wallet-error" role="alert">{walletError}</p>}
-          {dataError && <p className="wallet-error" role="alert">Verified protocol data unavailable: {dataError}</p>}
-
-          {active === "Overview" && <>
-            <div className="hero">
-              <div>
-                <p className="eyebrow">Provable collateral compression</p>
-                <h1>Unlock guaranteed value before markets resolve.</h1>
-                <p className="lede">EventClear advances pUSD against the mathematically proven minimum payout of formally related outcome positions—while you keep the residual upside.</p>
-              </div>
-              <div className="panel worlds" aria-label="Example payoff">
-                <div className="world-row"><span>BTC state</span><span>Combined payout</span><span>Floor</span></div>
-                <div className="world-row"><span>Below $100K</span><span>100.00 pUSD</span><span className="floor">100.00</span></div>
-                <div className="world-row"><span>$100K–$150K</span><span>200.00 pUSD</span><span>—</span></div>
-                <div className="world-row"><span>Above $150K</span><span>100.00 pUSD</span><span className="floor">100.00</span></div>
-              </div>
-            </div>
-
-            <div className="metric-grid">
-              <div className="metric"><label>Guaranteed collateral</label><strong>{metrics?.available ? formatPusd(metrics.guaranteedFloorEscrowedAtomic) : "Unavailable"}</strong><small>verified pUSD principal</small></div>
-              <div className="metric"><label>Capital unlocked</label><strong>{metrics?.available ? formatPusd(metrics.netAdvancesAtomic) : "Unavailable"}</strong><small>verified net advances</small></div>
-              <div className="metric"><label>Active bundles</label><strong>{metrics?.available ? metrics.activeBundles : "Unavailable"}</strong><small>indexed protocol state</small></div>
-              <div className="metric"><label>Active relationships</label><strong>{metrics?.available ? metrics.approvedRelationships : "Unavailable"}</strong><small>reviewed definitions</small></div>
-            </div>
-
-            <section className="panel">
-              <div className="panel-head"><h2>Compression opportunities</h2><span>Verified API data · Polygon 137</span></div>
-              {!wallet && <p className="form-note">Connect a wallet to scan its indexed positions.</p>}
-              {wallet && apiOpportunities.length === 0 && <p className="form-note">No financing-eligible reviewed relationship was found.</p>}
-              {apiOpportunities.map((row) => (
-                <div className="opportunity" key={row.relationshipId}>
-                  <div className="pair"><strong>{row.relationshipId}</strong><span>Reviewed relationship match</span><span className="pill">{row.status}</span></div>
-                  <div className="cell"><label>Guaranteed floor</label><b>{formatPusd(row.guaranteedFloorAtomic)} pUSD</b></div>
-                  <div className="cell"><label>Net advance</label><b>{formatPusd(row.estimatedAdvanceAtomic)} pUSD</b></div>
-                  <button className="analyze" onClick={() => setSelected(row)}>Analyze bundle</button>
-                </div>
-              ))}
+          {wallet && config && (
+            <section className="wallet-strip" aria-label="Connected wallet capability">
+              <div><label>Signer</label><code>{wallet}</code></div>
+              <div><label>Position wallet</label><code>{capability?.positionWallet ?? "Unavailable"}</code></div>
+              <div><label>Wallet type</label><strong>{capability?.walletType ?? "Unavailable"}</strong></div>
+              <div><label>Execution support</label><strong>{capability?.executionSupported ? "Supported" : "Read-only"}</strong></div>
+              <div><label>Chain</label><strong>{config.chainId}</strong></div>
+              <div><label>pUSD balance</label><strong>{formatPusd(pusdBalance)}</strong></div>
+              <div><label>ERC-1155 approval</label><strong>{positionApproval === undefined ? "Unavailable" : positionApproval ? "Approved" : "Required"}</strong></div>
             </section>
+          )}
+          {message && <p className="wallet-error" role="status">{message}</p>}
 
-            <div className="bottom-grid">
+          {active === "Overview" && (
+            <>
+              <div className="hero">
+                <div>
+                  <p className="eyebrow">Provable collateral compression</p>
+                  <h1>Unlock guaranteed value before markets resolve.</h1>
+                  <p className="lede">
+                    EventClear advances pUSD against the solver-verified minimum
+                    payout of reviewed related outcome positions while the
+                    borrower retains a residual claim.
+                  </p>
+                </div>
+                <section className="panel status-grid" aria-label="Release status">
+                  {statusItems.map(([label, value]) => (
+                    <div key={label}><label>{label}</label><strong>{value || "Unavailable"}</strong></div>
+                  ))}
+                </section>
+              </div>
+              <div className="metric-grid">
+                <div className="metric"><label>Guaranteed collateral</label><strong>{metrics?.available ? formatPusd(metrics.guaranteedFloorEscrowedAtomic) : "Unavailable"}</strong><small>verified pUSD principal</small></div>
+                <div className="metric"><label>Capital unlocked</label><strong>{metrics?.available ? formatPusd(metrics.netAdvancesAtomic) : "Unavailable"}</strong><small>verified net advances</small></div>
+                <div className="metric"><label>Active bundles</label><strong>{metrics?.available ? metrics.activeBundles : "Unavailable"}</strong><small>indexed protocol state</small></div>
+                <div className="metric"><label>Approved relationships</label><strong>{metrics?.available ? metrics.approvedRelationships : "Unavailable"}</strong><small>reviewed definitions</small></div>
+              </div>
               <section className="panel">
-                <div className="panel-head"><h2>Active bundle EC-00418</h2><span>Resolution expected 31 Dec 2026</span></div>
+                <div className="panel-head"><h2>Active bundles</h2><span>Verified indexed state only</span></div>
                 <div className="worlds">
                   <div className="world-row"><span>Bundle</span><span>Principal</span><span>Status</span></div>
-                  {bundles.filter((item) => item.status === "ACTIVE").slice(0, 2).map((item) => (
-                    <div className="world-row" key={item.id}><span>{item.id}</span><span>{formatPusd(item.principalAmountAtomic)}</span><span className="floor">{item.status}</span></div>
+                  {bundles.filter((item) => item.status === "ACTIVE").map((item) => (
+                    <div className="world-row" key={item.id}>
+                      <span>{item.id}</span><span>{formatPusd(item.principalAmountAtomic)}</span>
+                      <span className="floor">{item.status}</span>
+                    </div>
                   ))}
-                  {!bundles.some((item) => item.status === "ACTIVE") && <div className="world-row"><span>No verified active bundle</span><span>—</span><span>Unavailable</span></div>}
+                  {!bundles.some((item) => item.status === "ACTIVE") && (
+                    <div className="world-row"><span>No verified active bundle</span><span>—</span><span>Unavailable</span></div>
+                  )}
                 </div>
               </section>
-              <section className="panel">
-                <div className="panel-head"><h2>Capital authorization gates</h2><span>Required before execution</span></div>
-                <div className="risk-list">
-                  {["Canonical relationship registered onchain", "Settlement rule hashes match", "Solver proof reproduced", "Quote bound to wallet, chain and vault", "Market data within freshness window", "Pool exposure limits available"].map((gate) => <div className="risk" key={gate}>{gate}</div>)}
-                </div>
-              </section>
-            </div>
-          </>}
+            </>
+          )}
 
           {active === "Scanner" && (
-            <section className="workspace-grid">
-              <div className="panel">
-                <div className="panel-head"><h2>Indexed wallet positions</h2><span>{wallet ? "Account resolved" : "Connect wallet to refresh"}</span></div>
-                <div className="data-table">
-                  <div className="data-row data-head"><span>Include</span><span>Position</span><span>Balance</span><span>Value</span><span>Rule match</span></div>
-                  {positions.map((position) => (
-                    <label className="data-row" key={position.tokenId}><input type="checkbox" /><span>{position.title ?? `${position.outcome} token ${position.tokenId.slice(0, 10)}…`}</span><b>{formatPusd(position.amountAtomic)}</b><span>{formatPusd(position.currentValueAtomic)} pUSD</span><em>Indexed</em></label>
-                  ))}
-                  {positions.length === 0 && <div className="data-row"><span>—</span><span>No indexed positions</span><span>—</span><span>—</span><em>Unavailable</em></div>}
-                </div>
-              </div>
-              <div className="panel solver-card">
-                <div className="panel-head"><h2>Deterministic solver</h2><span>3 terminal worlds</span></div>
-                <div className="solver-body">
-                  <p className="eyebrow">{apiOpportunities.length ? "Eligible reviewed definition" : "No verified candidate"}</p>
-                  <strong className="solver-floor">{formatPusd(apiOpportunities[0]?.guaranteedFloorAtomic)} <small>pUSD floor</small></strong>
-                  <dl>
-                    <div><dt>Net advance</dt><dd>{formatPusd(apiOpportunities[0]?.estimatedAdvanceAtomic)} pUSD</dd></div>
-                    <div><dt>Relationship</dt><dd>{apiOpportunities[0]?.relationshipId ?? "Unavailable"}</dd></div>
-                  </dl>
-                  <button className="analyze wide" disabled={apiOpportunities.length === 0} onClick={() => setSelected(apiOpportunities[0] ?? null)}>Review quote</button>
-                </div>
-              </div>
-            </section>
+            <PositionScanner
+              positions={positions}
+              relationship={approvedRelationship}
+              selected={selected}
+              busy={busy}
+              onSelectionChange={(tokenId, amount) =>
+                setSelected((current) => {
+                  const next = { ...current };
+                  if (amount === undefined) delete next[tokenId];
+                  else next[tokenId] = amount;
+                  return next;
+                })
+              }
+              onAnalyze={analyze}
+            />
           )}
 
           {active === "Bundles" && (
             <section className="panel">
-              <div className="panel-head"><h2>Bundle ledger</h2><span>Principal-first settlement</span></div>
+              <div className="panel-head"><h2>Bundle ledger</h2><span>Indexer-backed state</span></div>
               <div className="data-table">
-                <div className="data-row data-head"><span>Bundle</span><span>Status</span><span>Principal</span><span>Advance</span><span>Residual claim</span></div>
+                <div className="data-row data-head"><span>Bundle</span><span>Status</span><span>Principal</span><span>Advance</span><span>Action</span></div>
                 {bundles.map((item) => (
-                  <div className="data-row" key={item.id}><b>{item.id}</b><em className={item.status === "SHORTFALL" ? "warn" : ""}>{item.status}</em><span>{formatPusd(item.principalAmountAtomic)} pUSD</span><span>{formatPusd(item.grossAdvanceAtomic)} pUSD</span><span>Onchain claim ledger</span></div>
+                  <div className="data-row" key={item.id}>
+                    <b><a className="bundle-link" href={`/bundles/${item.id}`}>{item.id}</a></b>
+                    <em className={item.status === "SHORTFALL" ? "warn" : ""}>{item.status}</em>
+                    <span>{formatPusd(item.principalAmountAtomic)} pUSD</span>
+                    <span>{formatPusd(item.grossAdvanceAtomic)} pUSD</span>
+                    <button
+                      className="ghost"
+                      disabled={!session || !item.conditionsResolved || !config?.mainnetExecution}
+                      onClick={() => executePrepared(
+                        `/bundles/${item.id}/prepare-settlement`,
+                        {},
+                        `SETTLE_${item.id}`,
+                        ["PositionsRedeemed"],
+                      )}
+                    >
+                      {item.conditionsResolved ? "Prepare settlement" : "Await resolution"}
+                    </button>
+                  </div>
                 ))}
               </div>
-              <div className="panel-foot"><span>Settlement stays permissionless while originations are paused.</span><button className="ghost">Prepare settlement</button></div>
+              <TransactionTimeline stages={stages} chainId={config?.chainId ?? 0} />
+            </section>
+          )}
+
+          {active === "Claims" && (
+            <section className="panel">
+              <div className="panel-head"><h2>Claim balances</h2><span>Partial or full redemption</span></div>
+              <div className="data-table">
+                <div className="data-row data-head"><span>Claim</span><span>Type</span><span>Bundle</span><span>Balance</span><span>Action</span></div>
+                {claims.map((claim) => (
+                  <div className="data-row" key={claim.tokenId}>
+                    <b>{claim.tokenId}</b><em>{claim.claimType}</em><span>{claim.bundleId}</span>
+                    <span>{claim.holderBalanceAtomic ?? "0"} claim units</span>
+                    <div className="claim-actions">
+                      <input
+                        className="quantity-input"
+                        aria-label={`Redemption amount for ${claim.tokenId}`}
+                        value={claimAmounts[claim.tokenId] ?? claim.holderBalanceAtomic ?? "0"}
+                        onChange={(event) => setClaimAmounts((current) => ({
+                          ...current,
+                          [claim.tokenId]: event.target.value,
+                        }))}
+                      />
+                      <button
+                        className="ghost"
+                        disabled={!session || !claim.holderBalanceAtomic || !config?.mainnetExecution}
+                        onClick={() => executePrepared(
+                          `/claims/${claim.tokenId}/prepare-redemption`,
+                          {
+                            amountAtomic:
+                              claimAmounts[claim.tokenId] ?? claim.holderBalanceAtomic ?? "0",
+                          },
+                          `REDEEM_${claim.tokenId}`,
+                          [claim.claimType === "PRINCIPAL" ? "PrincipalClaimed" : "ResidualClaimed"],
+                        )}
+                      >
+                        Redeem
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </section>
           )}
 
           {active === "Pool" && (
             <section className="workspace-grid">
               <div className="panel">
-                <div className="panel-head"><h2>EventClear pilot pool</h2><span>ERC-4626 · allowlisted</span></div>
+                <div className="panel-head"><h2>EventClear pilot pool</h2><span>Allowlisted ERC-4626</span></div>
                 <div className="pool-stats">
-                  <div><label>Total assets</label><strong>{formatPusd(pool?.totalAssetsAtomic)}</strong><small>pUSD</small></div>
-                  <div><label>Liquid reserve</label><strong>{formatPusd(pool?.liquidAtomic)}</strong><small>verified balance</small></div>
-                  <div><label>Outstanding cost</label><strong>{formatPusd(pool?.outstandingAdvanceCostBasisAtomic)}</strong><small>pUSD</small></div>
-                  <div><label>Quoted fees pending</label><strong>{formatPusd(pool?.outstandingQuotedFeesAtomic)}</strong><small>unearned</small></div>
-                  <div><label>Realized net yield</label><strong>{formatPusd(pool?.realizedYieldAtomic)}</strong><small>after protocol fees</small></div>
+                  <div><label>Total assets</label><strong>{formatPusd(pool?.totalAssetsAtomic)}</strong></div>
+                  <div><label>Liquid reserve</label><strong>{formatPusd(pool?.liquidAtomic)}</strong></div>
+                  <div><label>Outstanding cost</label><strong>{formatPusd(pool?.outstandingAdvanceCostBasisAtomic)}</strong></div>
+                  <div><label>Pending quoted fees</label><strong>{formatPusd(pool?.outstandingQuotedFeesAtomic)}</strong></div>
+                  <div><label>Realized yield</label><strong>{formatPusd(pool?.realizedYieldAtomic)}</strong></div>
+                  <div><label>Realized loss</label><strong>{formatPusd(pool?.realizedLossAtomic)}</strong></div>
                 </div>
               </div>
               <div className="panel solver-card">
-                <div className="panel-head"><h2>LP transaction</h2><span>Allowlist required</span></div>
+                <div className="panel-head"><h2>LP transaction</h2><span>Public deposits disabled</span></div>
                 <div className="solver-body">
                   <label className="input-label">Deposit amount</label>
-                  <div className="amount-input"><input inputMode="decimal" value={depositAmount} onChange={(event) => setDepositAmount(event.target.value)} /><span>pUSD</span></div>
-                  <dl><div><dt>Requested assets</dt><dd>{depositAmount || "0"} pUSD</dd></div><div><dt>Current utilization</dt><dd>{pool ? `${pool.utilizationBps / 100}%` : "Unavailable"}</dd></div></dl>
-                  <button className="analyze wide" disabled={!wallet || chainId !== publicConfig?.chainId || !publicConfig?.mainnetExecution} onClick={depositOnchain}>
-                    {publicConfig?.mainnetExecution ? "Deposit onchain" : "Execution disabled"}
+                  <div className="amount-input">
+                    <input value={depositAmount} onChange={(event) => setDepositAmount(event.target.value)} />
+                    <span>pUSD</span>
+                  </div>
+                  <button
+                    className="analyze wide"
+                    disabled={!wallet || !session || !config?.mainnetExecution}
+                    onClick={depositOnchain}
+                  >
+                    {config?.mainnetExecution ? "Approve and deposit" : "Read-only"}
                   </button>
-                  <small className="form-note">{transactionStatus || (wallet ? chainId === publicConfig?.chainId ? "Wallet eligible for preflight checks." : `Switch wallet to chain ${publicConfig?.chainId ?? "configured network"}.` : "Connect wallet to continue.")}</small>
+                  <hr />
+                  <label className="input-label">Available withdrawal</label>
+                  <strong>{formatPusd(poolAccount?.availableWithdrawalAtomic)} pUSD</strong>
+                  <label className="input-label transaction-label">Withdraw amount</label>
+                  <div className="amount-input">
+                    <input value={withdrawAmount} onChange={(event) => setWithdrawAmount(event.target.value)} />
+                    <span>pUSD</span>
+                  </div>
+                  <button
+                    className="ghost wide"
+                    disabled={
+                      !wallet
+                      || !session
+                      || !config?.mainnetExecution
+                      || !poolAccount?.availableWithdrawalAtomic
+                    }
+                    onClick={() => {
+                      try {
+                        const amount = parsePusdAtomic(withdrawAmount);
+                        void executePrepared(
+                          "/pool/prepare-withdrawal",
+                          {
+                            amountAtomic: amount.toString(),
+                            receiver: wallet,
+                            owner: wallet,
+                          },
+                          "POOL_WITHDRAWAL",
+                          ["Withdraw"],
+                        );
+                      } catch (error) {
+                        setMessage(error instanceof Error ? error.message : "POOL_WITHDRAWAL_FAILED");
+                      }
+                    }}
+                  >
+                    {config?.mainnetExecution ? "Withdraw available assets" : "Read-only"}
+                  </button>
+                  <small className="form-note">
+                    LP shares: {poolAccount?.sharesAtomic ?? "Unavailable"} ·{" "}
+                    allowlist: {poolAccount ? (poolAccount.allowlisted ? "approved" : "not approved") : "Unavailable"}
+                  </small>
                 </div>
               </div>
             </section>
@@ -375,11 +661,15 @@ export function EventClearApp() {
 
           {active === "Registry" && (
             <section className="panel">
-              <div className="panel-head"><h2>Relationship registry</h2><span>Immutable versions · reviewed hashes</span></div>
+              <div className="panel-head"><h2>Relationship registry</h2><span>Immutable reviewed versions</span></div>
               <div className="data-table">
                 <div className="data-row data-head"><span>Definition</span><span>Type</span><span>Version</span><span>Status</span><span>Rule hash</span></div>
                 {relationships.map((item) => (
-                  <div className="data-row" key={item.id}><b>{item.id}</b><span>{item.relationshipType}</span><span>v{item.version}</span><em className={item.status === "APPROVED" ? "" : "warn"}>{item.status}</em><code>{item.resolutionRulesHash.slice(0, 8)}…{item.resolutionRulesHash.slice(-4)}</code></div>
+                  <div className="data-row" key={item.id}>
+                    <b>{item.id}</b><span>{item.relationshipType}</span><span>v{item.version}</span>
+                    <em className={item.status === "APPROVED" ? "" : "warn"}>{item.status}</em>
+                    <code>{item.resolutionRulesHash.slice(0, 10)}…</code>
+                  </div>
                 ))}
               </div>
             </section>
@@ -387,28 +677,16 @@ export function EventClearApp() {
         </div>
       </section>
 
-      {selected && (
-        <div className="drawer" role="dialog" aria-modal="true" aria-labelledby="quote-title" onMouseDown={(event) => event.target === event.currentTarget && setSelected(null)}>
-          <section className="quote">
-            <div className="quote-body">
-              <p className="eyebrow">Deterministic analysis</p>
-              <h2 id="quote-title">{selected.relationshipId}</h2>
-              <p>Proof 0xd18e…4a2f · Relationship v3 · quote lifetime 5 minutes</p>
-              <div className="quote-grid">
-                <div><label>Guaranteed floor</label><strong>{formatPusd(selected.guaranteedFloorAtomic)} pUSD</strong></div>
-                <div><label>Net advance</label><strong>{formatPusd(selected.estimatedAdvanceAtomic)} pUSD</strong></div>
-                <div><label>Principal claim</label><strong>{formatPusd(selected.guaranteedFloorAtomic)} pUSD</strong></div>
-                <div><label>Quoted origination fee</label><strong>Calculated on live quote</strong></div>
-                <div><label>Reserve haircut</label><strong>1.00%</strong></div>
-                <div><label>Residual upside</label><strong>Retained by borrower claim</strong></div>
-              </div>
-            </div>
-            <div className="quote-actions">
-              <button className="ghost" onClick={() => setSelected(null)}>Close</button>
-              <button className="analyze" onClick={wallet ? () => setSelected(null) : connectWallet}>{wallet ? "Preflight complete" : "Connect to request quote"}</button>
-            </div>
-          </section>
-        </div>
+      {analysis && wallet && config && (
+        <LifecycleDrawer
+          analysis={analysis}
+          wallet={wallet}
+          session={session}
+          config={config}
+          stages={stages}
+          recordStage={record}
+          onClose={() => setAnalysis(null)}
+        />
       )}
     </main>
   );

@@ -17,7 +17,9 @@ ZERO_HASH = "0x" + "00" * 32
 def canonical_bytes(value: object) -> bytes:
     if hasattr(value, "model_dump"):
         value = value.model_dump(mode="json", exclude_none=True)
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    return json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode()
 
 
 def _hash(value: object) -> str:
@@ -44,7 +46,10 @@ def _rejections(request: SolverRequest) -> tuple[list[str], list]:
         token = model.allowedTokens.get(leg.tokenId)
         if token is None:
             reasons.append(f"TOKEN_NOT_IN_DEFINITION:{leg.tokenId}")
-        elif token.get("conditionId") != leg.conditionId or token.get("outcome") != leg.outcome:
+        elif (
+            token.get("conditionId") != leg.conditionId
+            or token.get("outcome") != leg.outcome
+        ):
             reasons.append(f"LEG_SEMANTICS_MISMATCH:{leg.tokenId}")
     generated_worlds, generation_reasons = generate_threshold_worlds(model)
     reasons.extend(generation_reasons)
@@ -53,7 +58,12 @@ def _rejections(request: SolverRequest) -> tuple[list[str], list]:
     return sorted(set(reasons)), generated_worlds
 
 
-def solve(request: SolverRequest, *, include_all_worlds: bool = True, timestamp: str | None = None) -> SolverResult:
+def solve(
+    request: SolverRequest,
+    *,
+    include_all_worlds: bool = True,
+    timestamp: str | None = None,
+) -> SolverResult:
     reasons, generated_worlds = _rejections(request)
     calculated_at = timestamp or datetime.now(UTC).isoformat().replace("+00:00", "Z")
     worlds: list[TerminalWorld] = []
@@ -77,7 +87,8 @@ def solve(request: SolverRequest, *, include_all_worlds: bool = True, timestamp:
     if not worlds:
         base = SolverResult(
             approvedDefinitionFound=not any(
-                reason in {"RELATIONSHIP_HASH_MISMATCH", "RELATIONSHIP_VERSION_MISMATCH"}
+                reason
+                in {"RELATIONSHIP_HASH_MISMATCH", "RELATIONSHIP_VERSION_MISMATCH"}
                 for reason in reasons
             ),
             satisfiable=False,
@@ -112,7 +123,13 @@ def solve(request: SolverRequest, *, include_all_worlds: bool = True, timestamp:
         if minimizer.check() != sat or maximizer.check() != sat:
             worlds = []
             return solve(
-                request.model_copy(update={"payoutModel": request.payoutModel.model_copy(update={"validWorlds": []})}),
+                request.model_copy(
+                    update={
+                        "payoutModel": request.payoutModel.model_copy(
+                            update={"validWorlds": []}
+                        )
+                    }
+                ),
                 include_all_worlds=include_all_worlds,
                 timestamp=calculated_at,
             )
@@ -126,8 +143,12 @@ def solve(request: SolverRequest, *, include_all_worlds: bool = True, timestamp:
             maximumPayoutAtomic=str(high),
             validWorldCount=len(worlds),
             terminalWorlds=worlds if include_all_worlds else [],
-            minimumWitnessWorlds=[world for world in worlds if int(world.totalPayoutAtomic) == low],
-            maximumWitnessWorlds=[world for world in worlds if int(world.totalPayoutAtomic) == high],
+            minimumWitnessWorlds=[
+                world for world in worlds if int(world.totalPayoutAtomic) == low
+            ],
+            maximumWitnessWorlds=[
+                world for world in worlds if int(world.totalPayoutAtomic) == high
+            ],
             inputHash=_hash(request),
             definitionHash=request.relationshipDefinitionHash,
             artifactHash=ZERO_HASH,
@@ -136,7 +157,10 @@ def solve(request: SolverRequest, *, include_all_worlds: bool = True, timestamp:
             rejectionCodes=[],
             rejectionExplanations=[],
         )
-    payload = {"request": request.model_dump(mode="json"), "result": base.model_dump(mode="json", exclude={"artifactHash"})}
+    payload = {
+        "request": request.model_dump(mode="json"),
+        "result": base.model_dump(mode="json", exclude={"artifactHash"}),
+    }
     return base.model_copy(update={"artifactHash": _hash(payload)})
 
 

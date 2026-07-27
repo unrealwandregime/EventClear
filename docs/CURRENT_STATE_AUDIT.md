@@ -7,6 +7,21 @@ Target: EventClear v1 controlled, allowlisted production beta for `CRYPTO_THRESH
 
 ## Executive assessment
 
+### Continuation sprint update
+
+The baseline findings below are retained for audit history. The continuation
+sprint has replaced the monolithic preview flow with connected feature modules,
+completed genuine server-generated transaction preparation, added canonical
+indexer projections for bundles/claims/pool/events, enforced strict EOA wallet
+authorization and reviewed resolution duration, moved fee realization to
+settlement, and made solver terminal-world generation independent of the
+frontend. Local Playwright and a real two-block Polygon fork lifecycle now pass.
+
+The public deployment remains `production-readonly`. No EventClear Polygon
+mainnet contract has been deployed and no capital has been activated. Docker
+Compose and the newly expanded Linux reproducibility job still require visible
+GitHub Actions verification, so software functionality is not marked complete.
+
 The repository is a coherent release-candidate prototype, not a complete EventClear
 v1. It already contains a deterministic Python solver, EIP-712 quote generation,
 working local Solidity lifecycle tests, a PostgreSQL-oriented API repository,

@@ -37,14 +37,26 @@ def relationship_rejection_code(relationship: dict | None) -> str:
     return "RELATIONSHIP_NOT_ACTIVE"
 
 
-def _validate_relationship(relationship: dict, request: SolverRequest, now: int) -> None:
-    _reject(relationship.get("status") != "APPROVED", relationship_rejection_code(relationship))
-    _reject(relationship.get("relationshipType") != ALLOWED_SCHEMA, "UNSUPPORTED_RELATIONSHIP_SCHEMA")
+def _validate_relationship(
+    relationship: dict, request: SolverRequest, now: int
+) -> None:
     _reject(
-        relationship.get("canonicalDefinitionHash") != request.relationshipDefinitionHash,
+        relationship.get("status") != "APPROVED",
+        relationship_rejection_code(relationship),
+    )
+    _reject(
+        relationship.get("relationshipType") != ALLOWED_SCHEMA,
+        "UNSUPPORTED_RELATIONSHIP_SCHEMA",
+    )
+    _reject(
+        relationship.get("canonicalDefinitionHash")
+        != request.relationshipDefinitionHash,
         "RELATIONSHIP_HASH_MISMATCH",
     )
-    _reject(int(relationship.get("version", 0)) != request.relationshipVersion, "RELATIONSHIP_VERSION_MISMATCH")
+    _reject(
+        int(relationship.get("version", 0)) != request.relationshipVersion,
+        "RELATIONSHIP_VERSION_MISMATCH",
+    )
     rule_hash = relationship.get("resolutionRulesHash")
     _reject(
         not isinstance(rule_hash, str)
@@ -54,7 +66,9 @@ def _validate_relationship(relationship: dict, request: SolverRequest, now: int)
     )
     earliest = int(relationship.get("earliestResolutionTimestamp", 0))
     latest = int(relationship.get("latestResolutionTimestamp", 0))
-    _reject(earliest <= 0 or latest < earliest, "RELATIONSHIP_RESOLUTION_WINDOW_INVALID")
+    _reject(
+        earliest <= 0 or latest < earliest, "RELATIONSHIP_RESOLUTION_WINDOW_INVALID"
+    )
     _reject(latest <= now, "MARKET_RESOLUTION_WINDOW_PASSED")
 
 
@@ -79,7 +93,10 @@ def _validate_solver(request: SolverRequest) -> tuple[Any, int]:
 
 def _reviewed_market_map(relationship: dict) -> dict[str, dict]:
     reviewed = relationship.get("reviewedMarkets")
-    _reject(not isinstance(reviewed, list) or not reviewed, "REVIEWED_MARKET_METADATA_MISSING")
+    _reject(
+        not isinstance(reviewed, list) or not reviewed,
+        "REVIEWED_MARKET_METADATA_MISSING",
+    )
     result = {
         str(item.get("conditionId", "")).lower(): item
         for item in reviewed
@@ -94,7 +111,10 @@ def _validate_legs(request: SolverRequest, relationship: dict) -> dict[str, dict
     seen_tokens: set[str] = set()
     seen_conditions: set[str] = set()
     for leg in request.legs:
-        _reject(leg.tokenId in seen_tokens or leg.conditionId.lower() in seen_conditions, "DUPLICATE_LEG")
+        _reject(
+            leg.tokenId in seen_tokens or leg.conditionId.lower() in seen_conditions,
+            "DUPLICATE_LEG",
+        )
         seen_tokens.add(leg.tokenId)
         seen_conditions.add(leg.conditionId.lower())
         market = reviewed.get(leg.conditionId.lower())
@@ -103,7 +123,10 @@ def _validate_legs(request: SolverRequest, relationship: dict) -> dict[str, dict
         _reject(bool(market.get("negativeRisk")), "UNSUPPORTED_NEGATIVE_RISK_POSITION")
         _reject(bool(market.get("combo")), "UNSUPPORTED_COMBO_POSITION")
         _reject(bool(market.get("resolved")), "MARKET_ALREADY_RESOLVED")
-        _reject(not market.get("active") or market.get("closed"), "MARKET_CLOSED_OR_UNSUPPORTED")
+        _reject(
+            not market.get("active") or market.get("closed"),
+            "MARKET_CLOSED_OR_UNSUPPORTED",
+        )
         _reject(
             str(market.get("tokenIds", {}).get(leg.outcome)) != leg.tokenId,
             "TOKEN_MARKET_SEMANTICS_MISMATCH",
@@ -155,11 +178,14 @@ def _validate_pool_and_risk(
         "MAXIMUM_ADVANCE_RATIO_EXCEEDED",
     )
     latest = int(relationship["latestResolutionTimestamp"])
-    _reject(latest - now > int(risk["maximumBundleDuration"]), "BUNDLE_DURATION_EXCEEDED")
+    _reject(
+        latest - now > int(risk["maximumBundleDuration"]), "BUNDLE_DURATION_EXCEEDED"
+    )
     wallet = str(payload["positionWallet"]).lower()
     relationship_hash = relationship["canonicalDefinitionHash"].lower()
     _reject(
-        int(risk["walletExposure"].get(wallet, 0)) + gross > int(risk["perWalletExposureCap"]),
+        int(risk["walletExposure"].get(wallet, 0)) + gross
+        > int(risk["perWalletExposureCap"]),
         "WALLET_EXPOSURE_LIMIT",
     )
     _reject(
@@ -170,13 +196,19 @@ def _validate_pool_and_risk(
     for leg in payload["solverRequest"]["legs"]:
         condition_id = str(leg["conditionId"]).lower()
         _reject(
-            int(risk["marketExposure"].get(condition_id, 0)) + gross > int(risk["perMarketExposureCap"]),
+            int(risk["marketExposure"].get(condition_id, 0)) + gross
+            > int(risk["perMarketExposureCap"]),
             "MARKET_EXPOSURE_LIMIT",
         )
-    _reject(int(risk["globalExposure"]) + gross > int(risk["globalExposureCap"]), "GLOBAL_EXPOSURE_LIMIT")
+    _reject(
+        int(risk["globalExposure"]) + gross > int(risk["globalExposureCap"]),
+        "GLOBAL_EXPOSURE_LIMIT",
+    )
 
 
-async def _live_pool_and_risk(settings: Any, gateway: Any, payload: dict, relationship: dict) -> tuple[dict, dict]:
+async def _live_pool_and_risk(
+    settings: Any, gateway: Any, payload: dict, relationship: dict
+) -> tuple[dict, dict]:
     pool_code, risk_code, registry_code = await asyncio.gather(
         gateway.contract_code(settings.funding_pool_address),
         gateway.contract_code(settings.risk_policy_address),
@@ -191,7 +223,10 @@ async def _live_pool_and_risk(settings: Any, gateway: Any, payload: dict, relati
         "minimumReserveBps",
     )
     pool_values = await asyncio.gather(
-        *(gateway.contract_call(settings.funding_pool_address, f"{name}()") for name in pool_names)
+        *(
+            gateway.contract_call(settings.funding_pool_address, f"{name}()")
+            for name in pool_names
+        )
     )
     pool = dict(zip(pool_names, pool_values, strict=True))
     pool["bytecodeExists"] = pool_code != "0x"
@@ -221,7 +256,9 @@ async def _live_pool_and_risk(settings: Any, gateway: Any, payload: dict, relati
         ),
     )
     _reject(not active, "RELATIONSHIP_NOT_ACTIVE_ONCHAIN")
-    _reject(onchain_version != int(relationship["version"]), "RELATIONSHIP_VERSION_CONFLICT")
+    _reject(
+        onchain_version != int(relationship["version"]), "RELATIONSHIP_VERSION_CONFLICT"
+    )
     _reject(
         resolution_window
         != [
@@ -241,11 +278,16 @@ async def _live_pool_and_risk(settings: Any, gateway: Any, payload: dict, relati
         "globalExposure",
     )
     risk_values = await asyncio.gather(
-        *(gateway.contract_call(settings.risk_policy_address, f"{name}()") for name in risk_names)
+        *(
+            gateway.contract_call(settings.risk_policy_address, f"{name}()")
+            for name in risk_names
+        )
     )
     risk = dict(zip(risk_names, risk_values, strict=True))
     wallet = payload["positionWallet"]
-    relationship_hash = bytes.fromhex(relationship["canonicalDefinitionHash"].removeprefix("0x"))
+    relationship_hash = bytes.fromhex(
+        relationship["canonicalDefinitionHash"].removeprefix("0x")
+    )
     conditions = [
         bytes.fromhex(str(leg["conditionId"]).removeprefix("0x"))
         for leg in payload["solverRequest"]["legs"]
@@ -253,7 +295,10 @@ async def _live_pool_and_risk(settings: Any, gateway: Any, payload: dict, relati
     schema_hash = keccak(text=ALLOWED_SCHEMA)
     wallet_exposure, relationship_exposure, *market_exposures = await asyncio.gather(
         gateway.contract_call(
-            settings.risk_policy_address, "walletExposure(address)", ["address"], [wallet]
+            settings.risk_policy_address,
+            "walletExposure(address)",
+            ["address"],
+            [wallet],
         ),
         gateway.contract_call(
             settings.risk_policy_address,
@@ -271,7 +316,12 @@ async def _live_pool_and_risk(settings: Any, gateway: Any, payload: dict, relati
             for condition in conditions
         ),
     )
-    schema_allowed, adapter_allowed, collateral_allowed, originations_paused = await asyncio.gather(
+    (
+        schema_allowed,
+        adapter_allowed,
+        collateral_allowed,
+        originations_paused,
+    ) = await asyncio.gather(
         gateway.contract_call(
             settings.risk_policy_address,
             "allowedRelationshipSchemas(bytes32)",
@@ -300,7 +350,9 @@ async def _live_pool_and_risk(settings: Any, gateway: Any, payload: dict, relati
             },
             "marketExposure": {
                 "0x" + condition.hex(): exposure
-                for condition, exposure in zip(conditions, market_exposures, strict=True)
+                for condition, exposure in zip(
+                    conditions, market_exposures, strict=True
+                )
             },
             "schemaAllowed": bool(schema_allowed),
             "originationsPaused": bool(originations_paused),
@@ -357,11 +409,17 @@ async def validate_quote_pre_sign(
             market = gamma.get(leg.conditionId.lower())
             _reject(market is None, "MARKET_METADATA_MISSING")
             _reject(
-                time.time() - float(market.get("observedAt", 0)) > settings.market_freshness_seconds,
+                time.time() - float(market.get("observedAt", 0))
+                > settings.market_freshness_seconds,
                 "MARKET_DATA_STALE",
             )
-            _reject(not market.get("active") or market.get("closed"), "MARKET_CLOSED_OR_UNSUPPORTED")
-            _reject(bool(market.get("negativeRisk")), "UNSUPPORTED_NEGATIVE_RISK_POSITION")
+            _reject(
+                not market.get("active") or market.get("closed"),
+                "MARKET_CLOSED_OR_UNSUPPORTED",
+            )
+            _reject(
+                bool(market.get("negativeRisk")), "UNSUPPORTED_NEGATIVE_RISK_POSITION"
+            )
             token_ids = [str(token_id) for token_id in market.get("tokenIds", [])]
             expected_index = 0 if leg.outcome == "YES" else 1
             _reject(
@@ -382,12 +440,15 @@ async def validate_quote_pre_sign(
                     [bytes.fromhex(leg.conditionId.removeprefix("0x"))],
                 ),
             )
-            _reject(rpc_balance < int(leg.amountAtomic), "POSITION_BALANCE_INSUFFICIENT")
+            _reject(
+                rpc_balance < int(leg.amountAtomic), "POSITION_BALANCE_INSUFFICIENT"
+            )
             _reject(payout_denominator != 0, "MARKET_ALREADY_RESOLVED")
             reported = data_positions.get(leg.tokenId)
             _reject(
                 reported is None
-                or str(reported.get("conditionId", "")).lower() != leg.conditionId.lower()
+                or str(reported.get("conditionId", "")).lower()
+                != leg.conditionId.lower()
                 or str(reported.get("outcome", "")).upper() != leg.outcome
                 or int(reported.get("amountAtomic", "0")) < int(leg.amountAtomic),
                 "POSITION_DATA_CONFLICT",
@@ -398,7 +459,10 @@ async def validate_quote_pre_sign(
                 "MARKET_RULE_SOURCE_CONFLICT",
             )
         snapshots = await require_books([leg.tokenId for leg in request.legs])
-        _reject(any(snapshot.get("negativeRisk") for snapshot in snapshots), "UNSUPPORTED_NEGATIVE_RISK_POSITION")
+        _reject(
+            any(snapshot.get("negativeRisk") for snapshot in snapshots),
+            "UNSUPPORTED_NEGATIVE_RISK_POSITION",
+        )
         pool, risk = await _live_pool_and_risk(settings, gateway, payload, relationship)
 
     _validate_pool_and_risk(

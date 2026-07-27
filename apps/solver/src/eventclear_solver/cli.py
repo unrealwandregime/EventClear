@@ -18,9 +18,13 @@ def main() -> None:
     verify_parser.add_argument("proof")
     args = parser.parse_args()
     if args.command == "solve":
-        request = SolverRequest.model_validate_json(Path(args.request).read_text(encoding="utf-8"))
+        request = SolverRequest.model_validate_json(
+            Path(args.request).read_text(encoding="utf-8")
+        )
         artifact = ProofArtifact(request=request, result=solve(request))
-        Path(args.out).write_text(json.dumps(artifact.model_dump(mode="json"), indent=2), encoding="utf-8")
+        Path(args.out).write_text(
+            json.dumps(artifact.model_dump(mode="json"), indent=2), encoding="utf-8"
+        )
         print(artifact.result.proofArtifactHash)
         return
     if not verify_artifact(args.proof):

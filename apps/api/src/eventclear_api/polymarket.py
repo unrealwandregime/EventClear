@@ -37,7 +37,9 @@ class PolymarketReadGateway:
         last_error: Exception | None = None
         for attempt in range(3):
             try:
-                async with httpx.AsyncClient(timeout=self.timeout_seconds, transport=self.transport) as client:
+                async with httpx.AsyncClient(
+                    timeout=self.timeout_seconds, transport=self.transport
+                ) as client:
                     response = await client.get(url, params=params)
                     response.raise_for_status()
                     return response.json()
@@ -53,7 +55,11 @@ class PolymarketReadGateway:
             value = Decimal(str(raw))
         except (InvalidOperation, ValueError) as exc:
             raise RuntimeError(code) from exc
-        if not value.is_finite() or value < 0 or (maximum is not None and value > maximum):
+        if (
+            not value.is_finite()
+            or value < 0
+            or (maximum is not None and value > maximum)
+        ):
             raise RuntimeError(code)
         return format(value, "f")
 
@@ -64,7 +70,9 @@ class PolymarketReadGateway:
             return numeric / 1000 if numeric > 10_000_000_000 else numeric
         except (TypeError, ValueError):
             try:
-                return datetime.fromisoformat(str(raw).replace("Z", "+00:00")).timestamp()
+                return datetime.fromisoformat(
+                    str(raw).replace("Z", "+00:00")
+                ).timestamp()
             except ValueError as exc:
                 raise RuntimeError("POLYMARKET_BOOK_TIMESTAMP_INVALID") from exc
 
@@ -80,7 +88,11 @@ class PolymarketReadGateway:
     async def markets(self, limit: int = 100) -> list[dict]:
         payload = await self._get(
             f"{self.gamma_url}/markets",
-            {"active": "true", "closed": "false", "limit": str(min(max(limit, 1), 500))},
+            {
+                "active": "true",
+                "closed": "false",
+                "limit": str(min(max(limit, 1), 500)),
+            },
         )
         if not isinstance(payload, list):
             raise RuntimeError("POLYMARKET_GAMMA_SCHEMA_INVALID")
@@ -112,7 +124,11 @@ class PolymarketReadGateway:
 
     async def market(self, condition_id: str) -> dict | None:
         return next(
-            (item for item in await self.markets(limit=500) if item["conditionId"].lower() == condition_id.lower()),
+            (
+                item
+                for item in await self.markets(limit=500)
+                if item["conditionId"].lower() == condition_id.lower()
+            ),
             None,
         )
 
@@ -128,22 +144,30 @@ class PolymarketReadGateway:
             if not isinstance(item, dict) or not item.get("asset"):
                 continue
             try:
-                amount = int((Decimal(str(item.get("size", "0"))) * 1_000_000).to_integral_value(rounding=ROUND_DOWN))
+                amount = int(
+                    (Decimal(str(item.get("size", "0"))) * 1_000_000).to_integral_value(
+                        rounding=ROUND_DOWN
+                    )
+                )
                 current_value = int(
-                    (Decimal(str(item.get("currentValue", "0"))) * 1_000_000).to_integral_value(rounding=ROUND_DOWN)
+                    (
+                        Decimal(str(item.get("currentValue", "0"))) * 1_000_000
+                    ).to_integral_value(rounding=ROUND_DOWN)
                 )
             except InvalidOperation as exc:
                 raise RuntimeError("POLYMARKET_POSITION_DECIMAL_INVALID") from exc
-            result.append({
-                "conditionId": item.get("conditionId"),
-                "tokenId": str(item.get("asset", "")),
-                "outcome": item.get("outcome"),
-                "amountAtomic": str(amount),
-                "currentValueAtomic": str(current_value),
-                "title": item.get("title"),
-                "negativeRisk": bool(item.get("negativeRisk")),
-                "source": "data-api-live",
-            })
+            result.append(
+                {
+                    "conditionId": item.get("conditionId"),
+                    "tokenId": str(item.get("asset", "")),
+                    "outcome": item.get("outcome"),
+                    "amountAtomic": str(amount),
+                    "currentValueAtomic": str(current_value),
+                    "title": item.get("title"),
+                    "negativeRisk": bool(item.get("negativeRisk")),
+                    "source": "data-api-live",
+                }
+            )
         return result
 
     async def order_book(self, token_id: str) -> dict:
@@ -168,7 +192,9 @@ class PolymarketReadGateway:
                             "POLYMARKET_BOOK_PRICE_INVALID",
                             maximum=Decimal(1),
                         ),
-                        "size": self._decimal(level.get("size"), "POLYMARKET_BOOK_SIZE_INVALID"),
+                        "size": self._decimal(
+                            level.get("size"), "POLYMARKET_BOOK_SIZE_INVALID"
+                        ),
                     }
                 )
             return result
@@ -259,7 +285,9 @@ class PolymarketReadGateway:
         last_error: Exception | None = None
         for rpc_url in self.rpc_urls:
             try:
-                async with httpx.AsyncClient(timeout=self.timeout_seconds, transport=self.transport) as client:
+                async with httpx.AsyncClient(
+                    timeout=self.timeout_seconds, transport=self.transport
+                ) as client:
                     response = await client.post(
                         rpc_url,
                         json={
@@ -285,9 +313,15 @@ class PolymarketReadGateway:
                             "openBundle": wallet_type == "EOA",
                         },
                         "executionSupported": wallet_type == "EOA",
-                        "reason": None if wallet_type == "EOA" else "UNVERIFIED_CONTRACT_WALLET_PATH",
+                        "reason": None
+                        if wallet_type == "EOA"
+                        else "UNVERIFIED_CONTRACT_WALLET_PATH",
                     }
             except (httpx.HTTPError, RuntimeError, ValueError) as exc:
+                if isinstance(exc, RuntimeError) and str(exc).startswith(
+                    "RPC_REVERTED:"
+                ):
+                    raise
                 last_error = exc
         raise RuntimeError("ALL_POLYGON_RPCS_UNAVAILABLE") from last_error
 
@@ -297,20 +331,49 @@ class PolymarketReadGateway:
         last_error: Exception | None = None
         for rpc_url in self.rpc_urls:
             try:
-                async with httpx.AsyncClient(timeout=self.timeout_seconds, transport=self.transport) as client:
+                async with httpx.AsyncClient(
+                    timeout=self.timeout_seconds, transport=self.transport
+                ) as client:
                     response = await client.post(
                         rpc_url,
-                        json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params},
+                        json={
+                            "jsonrpc": "2.0",
+                            "id": 1,
+                            "method": method,
+                            "params": params,
+                        },
                     )
                     response.raise_for_status()
                     payload = response.json()
+                    if isinstance(payload.get("error"), dict):
+                        message = str(
+                            payload["error"].get("message", "execution reverted")
+                        )
+                        raise RuntimeError(f"RPC_REVERTED:{message[:160]}")
                     result = payload.get("result")
                     if not isinstance(result, str):
                         raise RuntimeError("RPC_SCHEMA_INVALID")
                     return result
             except (httpx.HTTPError, RuntimeError, ValueError) as exc:
+                if isinstance(exc, RuntimeError) and str(exc).startswith(
+                    "RPC_REVERTED:"
+                ):
+                    raise
                 last_error = exc
         raise RuntimeError("ALL_POLYGON_RPCS_UNAVAILABLE") from last_error
+
+    async def simulate_transaction(
+        self,
+        *,
+        sender: str,
+        to: str,
+        data: str,
+        value: str = "0x0",
+    ) -> dict:
+        transaction = {"from": sender, "to": to, "data": data, "value": value}
+        await self.rpc("eth_call", [transaction, "latest"])
+        gas = await self.rpc("eth_estimateGas", [transaction])
+        return {"status": "SIMULATED", "gasEstimate": str(int(gas, 16))}
 
     async def contract_code(self, address: str) -> str:
         return await self.rpc("eth_getCode", [address, "latest"])
@@ -326,7 +389,10 @@ class PolymarketReadGateway:
         encoded_arguments = encode(argument_types or [], arguments or [])
         result = await self.rpc(
             "eth_call",
-            [{"to": address, "data": "0x" + (selector + encoded_arguments).hex()}, "latest"],
+            [
+                {"to": address, "data": "0x" + (selector + encoded_arguments).hex()},
+                "latest",
+            ],
         )
         try:
             return int(result, 16)
@@ -344,12 +410,17 @@ class PolymarketReadGateway:
         encoded_arguments = encode(argument_types or [], arguments or [])
         result = await self.rpc(
             "eth_call",
-            [{"to": address, "data": "0x" + (selector + encoded_arguments).hex()}, "latest"],
+            [
+                {"to": address, "data": "0x" + (selector + encoded_arguments).hex()},
+                "latest",
+            ],
         )
         raw = result.removeprefix("0x")
         if not raw or len(raw) % 64 != 0:
             raise RuntimeError("RPC_SCHEMA_INVALID")
         try:
-            return [int(raw[index : index + 64], 16) for index in range(0, len(raw), 64)]
+            return [
+                int(raw[index : index + 64], 16) for index in range(0, len(raw), 64)
+            ]
         except ValueError as exc:
             raise RuntimeError("RPC_SCHEMA_INVALID") from exc

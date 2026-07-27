@@ -5,6 +5,7 @@ import json
 import time
 import uuid
 
+from eth_account import Account
 from eth_account.messages import encode_typed_data
 from eth_abi import encode
 from eth_utils import keccak
@@ -34,42 +35,49 @@ def bundle_hash(
     vault: str,
 ) -> str:
     try:
-        condition_ids = [bytes.fromhex(leg["conditionId"].removeprefix("0x")) for leg in legs]
+        condition_ids = [
+            bytes.fromhex(leg["conditionId"].removeprefix("0x")) for leg in legs
+        ]
         if any(len(item) != 32 for item in condition_ids):
             raise ValueError
         token_ids = [int(leg["tokenId"]) for leg in legs]
         outcomes = [1 if leg["outcome"] == "YES" else 0 for leg in legs]
         amounts = [int(leg["amountAtomic"]) for leg in legs]
     except (KeyError, TypeError, ValueError) as exc:
-        raise ValueError("LEGS_MUST_USE_BYTES32_CONDITIONS_AND_UINT256_TOKEN_IDS") from exc
-    return "0x" + keccak(
-        encode(
-            [
-                "bytes32[]",
-                "uint256[]",
-                "uint8[]",
-                "uint256[]",
-                "address",
-                "uint32",
-                "address",
-                "address",
-                "uint256",
-                "address",
-            ],
-            [
-                condition_ids,
-                token_ids,
-                outcomes,
-                amounts,
-                adapter,
-                relationship_version,
-                position_wallet,
-                borrower,
-                chain_id,
-                vault,
-            ],
-        )
-    ).hex()
+        raise ValueError(
+            "LEGS_MUST_USE_BYTES32_CONDITIONS_AND_UINT256_TOKEN_IDS"
+        ) from exc
+    return (
+        "0x"
+        + keccak(
+            encode(
+                [
+                    "bytes32[]",
+                    "uint256[]",
+                    "uint8[]",
+                    "uint256[]",
+                    "address",
+                    "uint32",
+                    "address",
+                    "address",
+                    "uint256",
+                    "address",
+                ],
+                [
+                    condition_ids,
+                    token_ids,
+                    outcomes,
+                    amounts,
+                    adapter,
+                    relationship_version,
+                    position_wallet,
+                    borrower,
+                    chain_id,
+                    vault,
+                ],
+            )
+        ).hex()
+    )
 
 
 def position_wallet_authorization_hash(authorization: dict) -> str:
@@ -79,32 +87,35 @@ def position_wallet_authorization_hash(authorization: dict) -> str:
             "bytes32 bundleHash,address vault,uint256 chainId,uint256 nonce,uint256 expiry)"
         )
     )
-    return "0x" + keccak(
-        encode(
-            [
-                "bytes32",
-                "address",
-                "address",
-                "address",
-                "bytes32",
-                "address",
-                "uint256",
-                "uint256",
-                "uint256",
-            ],
-            [
-                typehash,
-                authorization["controllingSigner"],
-                authorization["borrower"],
-                authorization["positionWallet"],
-                bytes.fromhex(authorization["bundleHash"].removeprefix("0x")),
-                authorization["vault"],
-                authorization["chainId"],
-                authorization["nonce"],
-                authorization["expiry"],
-            ],
-        )
-    ).hex()
+    return (
+        "0x"
+        + keccak(
+            encode(
+                [
+                    "bytes32",
+                    "address",
+                    "address",
+                    "address",
+                    "bytes32",
+                    "address",
+                    "uint256",
+                    "uint256",
+                    "uint256",
+                ],
+                [
+                    typehash,
+                    authorization["controllingSigner"],
+                    authorization["borrower"],
+                    authorization["positionWallet"],
+                    bytes.fromhex(authorization["bundleHash"].removeprefix("0x")),
+                    authorization["vault"],
+                    authorization["chainId"],
+                    authorization["nonce"],
+                    authorization["expiry"],
+                ],
+            )
+        ).hex()
+    )
 
 
 def issue_quote(
@@ -133,7 +144,10 @@ def issue_quote(
         latest_resolution_timestamp = int(payload["latestResolutionTimestamp"])
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError("TRUSTED_RESOLUTION_WINDOW_REQUIRED") from exc
-    if earliest_resolution_timestamp <= 0 or latest_resolution_timestamp < earliest_resolution_timestamp:
+    if (
+        earliest_resolution_timestamp <= 0
+        or latest_resolution_timestamp < earliest_resolution_timestamp
+    ):
         raise ValueError("INVALID_RESOLUTION_WINDOW")
     exact_bundle_hash = bundle_hash(
         legs,
@@ -158,7 +172,9 @@ def issue_quote(
         "borrower": borrower,
         "positionWallet": position_wallet,
         "bundleHash": exact_bundle_hash,
-        "walletAuthorizationHash": position_wallet_authorization_hash(wallet_authorization),
+        "walletAuthorizationHash": position_wallet_authorization_hash(
+            wallet_authorization
+        ),
         "relationshipDefinitionHash": request.relationshipDefinitionHash,
         "solverArtifactHash": result.artifactHash,
         "earliestResolutionTimestamp": earliest_resolution_timestamp,
@@ -175,30 +191,38 @@ def issue_quote(
         "fundingPool": settings.funding_pool_address,
         "collateralToken": settings.collateral_token_address,
     }
-    domain = {"name": "EventClear", "version": "1", "chainId": settings.chain_id, "verifyingContract": settings.vault_address}
-    types = {"FinancingQuote": [
-        {"name": "borrower", "type": "address"},
-        {"name": "positionWallet", "type": "address"},
-        {"name": "bundleHash", "type": "bytes32"},
-        {"name": "walletAuthorizationHash", "type": "bytes32"},
-        {"name": "relationshipDefinitionHash", "type": "bytes32"},
-        {"name": "solverArtifactHash", "type": "bytes32"},
-        {"name": "earliestResolutionTimestamp", "type": "uint256"},
-        {"name": "latestResolutionTimestamp", "type": "uint256"},
-        {"name": "guaranteedFloor", "type": "uint256"},
-        {"name": "principalAmount", "type": "uint256"},
-        {"name": "grossAdvance", "type": "uint256"},
-        {"name": "originationFee", "type": "uint256"},
-        {"name": "netAdvance", "type": "uint256"},
-        {"name": "expiry", "type": "uint256"},
-        {"name": "nonce", "type": "uint256"},
-        {"name": "chainId", "type": "uint256"},
-        {"name": "vault", "type": "address"},
-        {"name": "fundingPool", "type": "address"},
-        {"name": "collateralToken", "type": "address"},
-    ]}
+    domain = {
+        "name": "EventClear",
+        "version": "1",
+        "chainId": settings.chain_id,
+        "verifyingContract": settings.vault_address,
+    }
+    types = {
+        "FinancingQuote": [
+            {"name": "borrower", "type": "address"},
+            {"name": "positionWallet", "type": "address"},
+            {"name": "bundleHash", "type": "bytes32"},
+            {"name": "walletAuthorizationHash", "type": "bytes32"},
+            {"name": "relationshipDefinitionHash", "type": "bytes32"},
+            {"name": "solverArtifactHash", "type": "bytes32"},
+            {"name": "earliestResolutionTimestamp", "type": "uint256"},
+            {"name": "latestResolutionTimestamp", "type": "uint256"},
+            {"name": "guaranteedFloor", "type": "uint256"},
+            {"name": "principalAmount", "type": "uint256"},
+            {"name": "grossAdvance", "type": "uint256"},
+            {"name": "originationFee", "type": "uint256"},
+            {"name": "netAdvance", "type": "uint256"},
+            {"name": "expiry", "type": "uint256"},
+            {"name": "nonce", "type": "uint256"},
+            {"name": "chainId", "type": "uint256"},
+            {"name": "vault", "type": "address"},
+            {"name": "fundingPool", "type": "address"},
+            {"name": "collateralToken", "type": "address"},
+        ]
+    }
     signable = encode_typed_data(domain, types, message)
     signature = sign_typed_data(signable, settings).hex()
+    risk_signer = Account.recover_message(signable, signature=signature)
     wallet_authorization_types = {
         "PositionWalletAuthorization": [
             {"name": "controllingSigner", "type": "address"},
@@ -214,10 +238,19 @@ def issue_quote(
     return {
         "id": str(uuid.uuid4()),
         "status": "ISSUED",
-        "quote": {key: str(value) if isinstance(value, int) else value for key, value in message.items()},
+        "quote": {
+            key: str(value) if isinstance(value, int) else value
+            for key, value in message.items()
+        },
         "signature": "0x" + signature.removeprefix("0x"),
+        "riskSigner": risk_signer,
         "solverResult": result.model_dump(mode="json"),
-        "typedData": {"domain": domain, "types": types, "primaryType": "FinancingQuote", "message": message},
+        "typedData": {
+            "domain": domain,
+            "types": types,
+            "primaryType": "FinancingQuote",
+            "message": message,
+        },
         "walletAuthorization": {
             "authorization": {
                 key: str(value) if isinstance(value, int) else value

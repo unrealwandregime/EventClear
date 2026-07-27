@@ -18,6 +18,8 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm indexer:test
       - run: pnpm build
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
   python:
     runs-on: ubuntu-latest
     steps:
@@ -58,6 +60,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker compose build
+  linux-reproducibility:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: foundry-rs/foundry-toolchain@v1
+      - run: cp .env.example .env
+      - run: make install
+      - run: make test
+      - run: docker compose up --detach anvil
+      - run: make demo-lifecycle
+      - if: always()
+        run: docker compose down --volumes
   polygon-fork:
     if: ${{ secrets.POLYGON_RPC_URL != '' }}
     runs-on: ubuntu-latest

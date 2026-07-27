@@ -36,14 +36,22 @@ def _decode_der_signature(value: bytes) -> tuple[int, int]:
     return r, s
 
 
-def _recoverable_signature(digest: bytes, r: int, s: int, expected_address: str) -> bytes:
+def _recoverable_signature(
+    digest: bytes, r: int, s: int, expected_address: str
+) -> bytes:
     if s > SECP256K1_ORDER // 2:
         s = SECP256K1_ORDER - s
     for recovery_id in (0, 1):
         candidate = Signature(vrs=(recovery_id, r, s))
-        recovered = candidate.recover_public_key_from_msg_hash(digest).to_checksum_address()
+        recovered = candidate.recover_public_key_from_msg_hash(
+            digest
+        ).to_checksum_address()
         if recovered.lower() == expected_address.lower():
-            return r.to_bytes(32, "big") + s.to_bytes(32, "big") + bytes([recovery_id + 27])
+            return (
+                r.to_bytes(32, "big")
+                + s.to_bytes(32, "big")
+                + bytes([recovery_id + 27])
+            )
     raise ValueError("KMS_SIGNATURE_ADDRESS_MISMATCH")
 
 

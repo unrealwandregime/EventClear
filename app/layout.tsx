@@ -19,13 +19,13 @@ export async function generateMetadata(): Promise<Metadata> {
     openGraph: {
       title: "EventClear — Provable collateral compression",
       description: "Unlock guaranteed value before markets resolve.",
-      images: [{ url: new URL("/og-v2.png", baseUrl), width: 1747, height: 909, alt: "EventClear guaranteed-floor payoff structure" }],
+      images: [{ url: new URL("/og.png", baseUrl), width: 1729, height: 910, alt: "EventClear provable collateral compression payoff structure" }],
     },
     twitter: {
       card: "summary_large_image",
       title: "EventClear — Provable collateral compression",
       description: "Unlock guaranteed value before markets resolve.",
-      images: [new URL("/og-v2.png", baseUrl)],
+      images: [new URL("/og.png", baseUrl)],
     },
   };
 }

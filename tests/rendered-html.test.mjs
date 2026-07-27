@@ -19,8 +19,9 @@ test("server-renders EventClear product content", async () => {
   const html = await response.text();
   assert.match(html, /<title>EventClear/);
   assert.match(html, /Unlock guaranteed value before markets resolve/);
-  assert.match(html, /Compression opportunities/);
-  assert.match(html, /Mainnet release candidate/);
-  assert.match(html, /execution gated pending audit and multisig activation/);
+  assert.match(html, /Public read-only alpha/);
+  assert.match(html, /Live Polymarket market and position data are available/);
+  assert.match(html, /public capital execution disabled/);
+  assert.doesNotMatch(html, /Mainnet candidate|Mainnet release candidate/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/);
 });

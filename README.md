@@ -37,7 +37,7 @@ make install
 make dev
 ```
 
-Open the application at `http://localhost:3000`, API docs at `http://localhost:8000/docs`, and solver docs at `http://localhost:8001/docs`. The seed contains a BTC equal-quantity ladder, ETH unequal ladder, intentionally incompatible rules, election review, sports approval, active/resolved/shortfall bundles, pool deposits, and fee history.
+Open the application at `http://localhost:3000`, API docs at `http://localhost:8000/docs`, and solver docs at `http://localhost:8001/docs`. The execution-capable seed is restricted to reviewed standard binary crypto-threshold positions.
 
 Useful commands:
 
@@ -46,6 +46,7 @@ make test
 make test-contracts
 make test-solver
 make test-integration
+pnpm test:e2e
 make fork-test POLYGON_RPC_URL=https://...
 make lint
 make typecheck
@@ -121,7 +122,11 @@ curl http://localhost:8000/api/v1/pool
 
 The TypeScript gateway uses the current unified `@polymarket/client` for typed market discovery and realtime subscriptions. It reconnects with capped exponential backoff, marks disconnect events stale, and discards out-of-order local timestamps. The API validates live public CLOB orderbooks and price history, stores book snapshots durably, and refuses execution when neither CLOB nor a cache observation inside `MARKET_FRESHNESS_SECONDS` is available. Exchange mutation timestamps are retained as source-lag telemetry and are not confused with HTTP observation freshness. Viem handles EVM reads and manifest verification. The checked-in Polygon registry is sourced only from the official Polymarket contract page and includes current pUSD/CTF/adapters/exchanges/UMA/PositionManager/combo modules.
 
-No user private key is requested or stored. EOA, Deposit Wallet, Safe, and Proxy support must route through the official secure-client signer path; unsupported account calls fall back to a documented user-signed EOA transaction.
+No user private key is requested or stored. The first execution path supports
+only EOAs where SIWE signer, borrower, position wallet and transaction sender
+are identical. Deposit Wallet, Safe, Proxy and other smart-wallet paths remain
+read-only until their controlling-signer relationship is independently
+verified and tested.
 
 ## Complete lifecycle
 

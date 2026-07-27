@@ -74,7 +74,9 @@ class ApiTests(unittest.TestCase):
         )
 
     def test_health_and_correlation(self):
-        response = self.client.get("/api/v1/health", headers={"x-correlation-id": "test-id"})
+        response = self.client.get(
+            "/api/v1/health", headers={"x-correlation-id": "test-id"}
+        )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers["x-correlation-id"], "test-id")
 
@@ -85,12 +87,16 @@ class ApiTests(unittest.TestCase):
     def test_relationship_creation_is_durable_through_store_interface(self):
         headers = {"x-admin-token": "local-admin"}
         payload = {"id": "new-ladder", "canonicalDefinitionHash": "0x" + "ef" * 32}
-        created = self.client.post("/api/v1/admin/relationships", json=payload, headers=headers)
+        created = self.client.post(
+            "/api/v1/admin/relationships", json=payload, headers=headers
+        )
         self.assertEqual(created.status_code, 200, created.text)
         fetched = self.client.get("/api/v1/relationships/new-ladder")
         self.assertEqual(fetched.status_code, 200)
         self.assertEqual(fetched.json()["status"], "DRAFT")
-        duplicate = self.client.post("/api/v1/admin/relationships", json=payload, headers=headers)
+        duplicate = self.client.post(
+            "/api/v1/admin/relationships", json=payload, headers=headers
+        )
         self.assertEqual(duplicate.status_code, 409)
 
     def test_siwe_nonce_is_single_use_even_after_failed_signature(self):
@@ -109,20 +115,30 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(second.json()["detail"]["code"], "INVALID_SIWE_NONCE")
 
     def test_valid_siwe_message_binds_domain_chain_nonce_and_address(self):
-        private_key = "0x59c6995e998f97a5a0044976f0945389dc9e86dae88c7a8412f4603b6b78690d"
+        private_key = (
+            "0x59c6995e998f97a5a0044976f0945389dc9e86dae88c7a8412f4603b6b78690d"
+        )
         account = Account.from_key(private_key)
         nonce = self.client.post("/api/v1/auth/siwe/nonce").json()["nonce"]
         message = self.siwe_message(account.address, nonce)
-        signature = Account.sign_message(encode_defunct(text=message), private_key=private_key).signature.hex()
+        signature = Account.sign_message(
+            encode_defunct(text=message), private_key=private_key
+        ).signature.hex()
         response = self.client.post(
             "/api/v1/auth/siwe/verify",
-            json={"nonce": nonce, "message": message, "signature": "0x" + signature.removeprefix("0x")},
+            json={
+                "nonce": nonce,
+                "message": message,
+                "signature": "0x" + signature.removeprefix("0x"),
+            },
         )
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["address"], account.address)
 
     def test_mainnet_rejects_memory_store(self):
-        production = Settings(mode="polygon-mainnet", chain_id=137, store_backend="memory")
+        production = Settings(
+            mode="polygon-mainnet", chain_id=137, store_backend="memory"
+        )
         with self.assertRaisesRegex(RuntimeError, "EVENTCLEAR_STORE=postgres"):
             production.validate()
 
@@ -138,10 +154,14 @@ class ApiTests(unittest.TestCase):
             production.validate()
 
     def test_kms_signature_recovery_encoding(self):
-        private_key = "0x59c6995e998f97a5a0044976f0945389dc9e86dae88c7a8412f4603b6b78690d"
+        private_key = (
+            "0x59c6995e998f97a5a0044976f0945389dc9e86dae88c7a8412f4603b6b78690d"
+        )
         digest = keccak(b"eventclear-kms-test")
         signed = Account._sign_hash(digest, private_key=private_key)
-        encoded = _recoverable_signature(digest, signed.r, signed.s, Account.from_key(private_key).address)
+        encoded = _recoverable_signature(
+            digest, signed.r, signed.s, Account.from_key(private_key).address
+        )
         self.assertEqual(len(encoded), 65)
         self.assertIn(encoded[-1], (27, 28))
 
@@ -159,8 +179,18 @@ class ApiTests(unittest.TestCase):
                 "relationshipDefinitionHash": definition_hash,
                 "definitionVersion": 1,
                 "legs": [
-                    {"conditionId": conditions[0], "tokenId": "1", "outcome": "YES", "amountAtomic": "100000000"},
-                    {"conditionId": conditions[1], "tokenId": "4", "outcome": "NO", "amountAtomic": "100000000"},
+                    {
+                        "conditionId": conditions[0],
+                        "tokenId": "1",
+                        "outcome": "YES",
+                        "amountAtomic": "100000000",
+                    },
+                    {
+                        "conditionId": conditions[1],
+                        "tokenId": "4",
+                        "outcome": "NO",
+                        "amountAtomic": "100000000",
+                    },
                 ],
                 "payoutModel": {
                     "definitionHash": definition_hash,
@@ -170,9 +200,21 @@ class ApiTests(unittest.TestCase):
                         "4": {"conditionId": conditions[1], "outcome": "NO"},
                     },
                     "validWorlds": [
-                        {"worldId": "below", "assignments": {"band": 0}, "payoutsAtomicByToken": {"1": "0", "4": "1000000"}},
-                        {"worldId": "middle", "assignments": {"band": 1}, "payoutsAtomicByToken": {"1": "1000000", "4": "1000000"}},
-                        {"worldId": "above", "assignments": {"band": 2}, "payoutsAtomicByToken": {"1": "1000000", "4": "0"}},
+                        {
+                            "worldId": "below",
+                            "assignments": {"band": 0},
+                            "payoutsAtomicByToken": {"1": "0", "4": "1000000"},
+                        },
+                        {
+                            "worldId": "middle",
+                            "assignments": {"band": 1},
+                            "payoutsAtomicByToken": {"1": "1000000", "4": "1000000"},
+                        },
+                        {
+                            "worldId": "above",
+                            "assignments": {"band": 2},
+                            "payoutsAtomicByToken": {"1": "1000000", "4": "0"},
+                        },
                     ],
                 },
             },
@@ -205,8 +247,18 @@ class ApiTests(unittest.TestCase):
                 "relationshipDefinitionHash": definition_hash,
                 "definitionVersion": 999,
                 "legs": [
-                    {"conditionId": "0x" + "11" * 32, "tokenId": "1", "outcome": "YES", "amountAtomic": "100000000"},
-                    {"conditionId": "0x" + "22" * 32, "tokenId": "4", "outcome": "NO", "amountAtomic": "100000000"},
+                    {
+                        "conditionId": "0x" + "11" * 32,
+                        "tokenId": "1",
+                        "outcome": "YES",
+                        "amountAtomic": "100000000",
+                    },
+                    {
+                        "conditionId": "0x" + "22" * 32,
+                        "tokenId": "4",
+                        "outcome": "NO",
+                        "amountAtomic": "100000000",
+                    },
                 ],
                 "payoutModel": {
                     "definitionHash": definition_hash,
@@ -216,7 +268,11 @@ class ApiTests(unittest.TestCase):
                         "4": {"conditionId": "0x" + "22" * 32, "outcome": "NO"},
                     },
                     "validWorlds": [
-                        {"worldId": "fabricated", "assignments": {}, "payoutsAtomicByToken": {"1": "9000000", "4": "9000000"}}
+                        {
+                            "worldId": "fabricated",
+                            "assignments": {},
+                            "payoutsAtomicByToken": {"1": "9000000", "4": "9000000"},
+                        }
                     ],
                 },
             },
@@ -228,7 +284,9 @@ class ApiTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["quote"]["guaranteedFloor"], "100000000")
-        self.assertEqual(response.json()["requestPayload"]["solverRequest"]["definitionVersion"], 3)
+        self.assertEqual(
+            response.json()["requestPayload"]["solverRequest"]["definitionVersion"], 3
+        )
 
     def test_quote_ignores_client_supplied_resolution_window(self):
         payload = {
@@ -239,8 +297,18 @@ class ApiTests(unittest.TestCase):
                 "relationshipDefinitionHash": "0x" + "ab" * 32,
                 "definitionVersion": 3,
                 "legs": [
-                    {"conditionId": "0x" + "11" * 32, "tokenId": "1", "outcome": "YES", "amountAtomic": "100000000"},
-                    {"conditionId": "0x" + "22" * 32, "tokenId": "4", "outcome": "NO", "amountAtomic": "100000000"},
+                    {
+                        "conditionId": "0x" + "11" * 32,
+                        "tokenId": "1",
+                        "outcome": "YES",
+                        "amountAtomic": "100000000",
+                    },
+                    {
+                        "conditionId": "0x" + "22" * 32,
+                        "tokenId": "4",
+                        "outcome": "NO",
+                        "amountAtomic": "100000000",
+                    },
                 ],
                 "payoutModel": {},
             },
@@ -254,8 +322,12 @@ class ApiTests(unittest.TestCase):
         body = response.json()
         self.assertEqual(body["quote"]["earliestResolutionTimestamp"], "1798761599")
         self.assertEqual(body["quote"]["latestResolutionTimestamp"], "1799366399")
-        self.assertEqual(body["requestPayload"]["earliestResolutionTimestamp"], 1798761599)
-        self.assertEqual(body["requestPayload"]["latestResolutionTimestamp"], 1799366399)
+        self.assertEqual(
+            body["requestPayload"]["earliestResolutionTimestamp"], 1798761599
+        )
+        self.assertEqual(
+            body["requestPayload"]["latestResolutionTimestamp"], 1799366399
+        )
 
     def test_quote_preflight_reports_checks_and_revalidates_refresh(self):
         response = self.request_quote()
@@ -267,14 +339,10 @@ class ApiTests(unittest.TestCase):
             body["solverResult"]["artifactHash"],
         )
 
-        store.position_balances[
-            "0x0000000000000000000000000000000000000001"
-        ]["1"] = 0
+        store.position_balances["0x0000000000000000000000000000000000000001"]["1"] = 0
         refreshed = self.client.post(
             f"/api/v1/quotes/{body['id']}/refresh",
-            headers=self.session_headers(
-                "0x0000000000000000000000000000000000000001"
-            ),
+            headers=self.session_headers("0x0000000000000000000000000000000000000001"),
         )
         self.assertEqual(refreshed.status_code, 422)
         self.assertEqual(
@@ -283,12 +351,14 @@ class ApiTests(unittest.TestCase):
         )
 
     def test_quote_rejects_insufficient_rpc_equivalent_balance(self):
-        store.position_balances[
-            "0x0000000000000000000000000000000000000001"
-        ]["1"] = 99_999_999
+        store.position_balances["0x0000000000000000000000000000000000000001"]["1"] = (
+            99_999_999
+        )
         response = self.request_quote()
         self.assertEqual(response.status_code, 422)
-        self.assertEqual(response.json()["detail"]["code"], "POSITION_BALANCE_INSUFFICIENT")
+        self.assertEqual(
+            response.json()["detail"]["code"], "POSITION_BALANCE_INSUFFICIENT"
+        )
 
     def test_quote_rejects_resolved_and_negative_risk_markets(self):
         store.relationships[0]["reviewedMarkets"][0]["resolved"] = True
@@ -315,7 +385,9 @@ class ApiTests(unittest.TestCase):
         store.pool_preflight["liquidAssets"] = 0
         liquidity = self.request_quote()
         self.assertEqual(liquidity.status_code, 422)
-        self.assertEqual(liquidity.json()["detail"]["code"], "POOL_LIQUIDITY_INSUFFICIENT")
+        self.assertEqual(
+            liquidity.json()["detail"]["code"], "POOL_LIQUIDITY_INSUFFICIENT"
+        )
 
         store.reset()
         store.risk_preflight["perMarketExposureCap"] = 1
@@ -358,7 +430,9 @@ class ApiTests(unittest.TestCase):
             headers=self.session_headers("0x0000000000000000000000000000000000000003"),
         )
         self.assertEqual(wrong_session.status_code, 403)
-        self.assertEqual(wrong_session.json()["detail"]["code"], "SIWE_ADDRESS_MISMATCH")
+        self.assertEqual(
+            wrong_session.json()["detail"]["code"], "SIWE_ADDRESS_MISMATCH"
+        )
 
         wrong_position_wallet = self.client.post(
             "/api/v1/quotes",
@@ -373,21 +447,100 @@ class ApiTests(unittest.TestCase):
 
     def test_transaction_preparation_returns_executable_calldata(self):
         receiver = "0x0000000000000000000000000000000000000001"
+        headers = {
+            **self.session_headers(receiver),
+            "Idempotency-Key": "deposit-test-0001",
+        }
         deposit = self.client.post(
             "/api/v1/pool/prepare-deposit",
             json={"amountAtomic": "1000000", "receiver": receiver},
+            headers=headers,
         )
         self.assertEqual(deposit.status_code, 200, deposit.text)
-        self.assertTrue(deposit.json()["transactionRequest"]["data"].startswith("0x6e553f65"))
+        self.assertTrue(
+            deposit.json()["transactionRequest"]["data"].startswith("0x6e553f65")
+        )
         self.assertFalse(deposit.json().get("requiresWalletEncoding", False))
 
         redemption = self.client.post(
             "/api/v1/claims/principal-418/prepare-redemption",
             json={"amountAtomic": "1000000"},
+            headers={
+                **self.session_headers(receiver),
+                "Idempotency-Key": "redemption-test-0001",
+            },
         )
         self.assertEqual(redemption.status_code, 200, redemption.text)
         self.assertNotEqual(redemption.json()["transactionRequest"]["data"], None)
         self.assertFalse(redemption.json()["requiresWalletEncoding"])
+
+    def test_transaction_preparation_is_idempotent_and_actor_bound(self):
+        receiver = "0x0000000000000000000000000000000000000001"
+        headers = {
+            **self.session_headers(receiver),
+            "Idempotency-Key": "deposit-idempotent-0001",
+        }
+        payload = {"amountAtomic": "1000000", "receiver": receiver}
+        first = self.client.post(
+            "/api/v1/pool/prepare-deposit", json=payload, headers=headers
+        )
+        second = self.client.post(
+            "/api/v1/pool/prepare-deposit", json=payload, headers=headers
+        )
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(first.json(), second.json())
+
+        changed = self.client.post(
+            "/api/v1/pool/prepare-deposit",
+            json={"amountAtomic": "2000000", "receiver": receiver},
+            headers=headers,
+        )
+        self.assertEqual(changed.status_code, 409)
+        self.assertEqual(changed.json()["detail"]["code"], "IDEMPOTENCY_KEY_REUSED")
+
+    def test_open_bundle_preparation_returns_only_protocol_destinations(self):
+        quote_response = self.request_quote()
+        self.assertEqual(quote_response.status_code, 200, quote_response.text)
+        quote_id = quote_response.json()["id"]
+        address = "0x0000000000000000000000000000000000000001"
+        signature = "0x" + "11" * 65
+
+        approval = self.client.post(
+            "/api/v1/bundles/open/prepare",
+            json={"quoteId": quote_id, "walletAuthorizationSignature": signature},
+            headers={
+                **self.session_headers(address),
+                "Idempotency-Key": "open-approval-0001",
+            },
+        )
+        self.assertEqual(approval.status_code, 200, approval.text)
+        self.assertEqual(approval.json()["action"], "APPROVE_POSITIONS")
+        self.assertEqual(
+            approval.json()["transactionRequest"]["to"].lower(),
+            "0x4d97dcd97ec945f40cf65f87097ace5ea0476045",
+        )
+
+        store.erc1155_approvals[
+            (address, "0x0000000000000000000000000000000000001000")
+        ] = True
+        opening = self.client.post(
+            "/api/v1/bundles/open/prepare",
+            json={"quoteId": quote_id, "walletAuthorizationSignature": signature},
+            headers={
+                **self.session_headers(address),
+                "Idempotency-Key": "open-bundle-0002",
+            },
+        )
+        self.assertEqual(opening.status_code, 200, opening.text)
+        self.assertEqual(opening.json()["action"], "OPEN_BUNDLE")
+        self.assertEqual(
+            opening.json()["transactionRequest"]["to"].lower(),
+            "0x0000000000000000000000000000000000001000",
+        )
+        self.assertEqual(
+            opening.json()["expectedSelector"],
+            opening.json()["transactionRequest"]["data"][:10],
+        )
 
     def test_public_config_exposes_only_execution_addresses_and_mode(self):
         response = self.client.get("/api/v1/config/public")

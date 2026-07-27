@@ -30,10 +30,16 @@ def _truth(comparator: str, value: Fraction, threshold: int) -> bool:
     }[comparator]
 
 
-def _canonical_payout(world: PayoutVector, tokens: set[str]) -> tuple[tuple[str, int], ...]:
+def _canonical_payout(
+    world: PayoutVector, tokens: set[str]
+) -> tuple[tuple[str, int], ...]:
     if set(world.payoutsAtomicByToken) != tokens:
         raise ValueError("WORLD_TOKEN_SET_MISMATCH")
-    values = tuple(sorted((token, int(value)) for token, value in world.payoutsAtomicByToken.items()))
+    values = tuple(
+        sorted(
+            (token, int(value)) for token, value in world.payoutsAtomicByToken.items()
+        )
+    )
     if any(value < 0 or value > UNIT for _, value in values):
         raise ValueError("WORLD_PAYOUT_OUT_OF_RANGE")
     return values
@@ -48,9 +54,14 @@ def generate_threshold_worlds(
     predicates = model.predicates
     first = predicates[0]
     for field, code in COMPATIBILITY_FIELDS.items():
-        if any(getattr(predicate, field) != getattr(first, field) for predicate in predicates[1:]):
+        if any(
+            getattr(predicate, field) != getattr(first, field)
+            for predicate in predicates[1:]
+        ):
             reasons.append(code)
-    if any(predicate.ruleDocumentHash != model.ruleDocumentHash for predicate in predicates):
+    if any(
+        predicate.ruleDocumentHash != model.ruleDocumentHash for predicate in predicates
+    ):
         reasons.append("RULE_DOCUMENT_HASH_MISMATCH")
 
     by_condition: dict[str, object] = {}
@@ -99,13 +110,18 @@ def generate_threshold_worlds(
 
     generated: list[PayoutVector] = []
     predicate_index = {
-        predicate.conditionId: index for index, predicate in enumerate(ordered_predicates)
+        predicate.conditionId: index
+        for index, predicate in enumerate(ordered_predicates)
     }
     for index, (truth_vector, representative) in enumerate(regions):
         payouts: dict[str, str] = {}
         for token_id, semantics in sorted(model.allowedTokens.items()):
             predicate_truth = truth_vector[predicate_index[semantics["conditionId"]]]
-            token_wins = predicate_truth if semantics["outcome"] == "YES" else not predicate_truth
+            token_wins = (
+                predicate_truth
+                if semantics["outcome"] == "YES"
+                else not predicate_truth
+            )
             payouts[token_id] = str(UNIT if token_wins else 0)
         generated.append(
             PayoutVector(
@@ -127,8 +143,12 @@ def generate_threshold_worlds(
             generated.append(exceptional)
         if not verify_reviewed:
             return generated, []
-        generated_counter = Counter(_canonical_payout(world, tokens) for world in generated)
-        reviewed_counter = Counter(_canonical_payout(world, tokens) for world in model.validWorlds)
+        generated_counter = Counter(
+            _canonical_payout(world, tokens) for world in generated
+        )
+        reviewed_counter = Counter(
+            _canonical_payout(world, tokens) for world in model.validWorlds
+        )
     except (TypeError, ValueError):
         return [], ["REVIEWED_WORLD_INVALID"]
     if generated_counter - reviewed_counter:

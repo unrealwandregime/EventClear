@@ -53,9 +53,7 @@ contract EventClearFundingPool is ERC4626, AccessControl, ERC1155Holder {
     event PrincipalSettled(
         uint256 indexed bundleId, uint256 principalReceived, uint256 realizedNetYield, uint256 protocolFee
     );
-    event OriginationFeeSettled(
-        uint256 indexed bundleId, uint256 quotedFee, uint256 realizedFee, uint256 refundedFee
-    );
+    event OriginationFeeSettled(uint256 indexed bundleId, uint256 quotedFee, uint256 realizedFee, uint256 refundedFee);
 
     constructor(IERC20 asset_, address admin, address feeTreasury_, uint256 cap, uint256 bundleCap)
         ERC20("EventClear Pilot Pool", "ecPUSD")

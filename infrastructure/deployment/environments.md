@@ -8,6 +8,13 @@
 | production-readonly | polygon-mainnet | no | Live discovery and monitoring |
 | production-mainnet | polygon-mainnet | yes, gated | Multisig-approved pilot |
 
-Frontend: Vercel or Sites. API, solver, and indexer: separate containers on Railway, Fly.io, ECS, or Kubernetes. PostgreSQL and Redis must be managed services with backups and private networking.
+Frontend: Sites for the public read-only surface. API, solver, and indexer:
+separate containers on Railway, Fly.io, ECS, or Kubernetes. PostgreSQL, Redis
+and S3-compatible proof-artifact storage must be managed services with backups
+and private networking. Monitoring uses OpenTelemetry/Sentry-compatible
+telemetry and centralized structured logs.
+
+See `STAGING_RUNBOOK.md` and `staging.env.example` for the controlled,
+non-mainnet staging manifest and commands.
 
 Production contract deployment is a reviewed Foundry broadcast prepared offline, simulated on a pinned fork, and executed by hardware-wallet/multisig signers. Constructor arguments, bytecode, roles, and official Polymarket manifest must be independently compared before source verification.

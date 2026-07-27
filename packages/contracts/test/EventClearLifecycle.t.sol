@@ -248,6 +248,71 @@ contract EventClearLifecycleTest is Test {
         assertEq(pusd.balanceOf(borrower), 144_525_000);
     }
 
+    function testDoubleSettlementAndDoubleRedemptionFailClosed() public {
+        (bytes32[] memory conditions, uint256[] memory ids, uint8[] memory outcomes, uint256[] memory amounts) = legs();
+        EventClearVault.FinancingQuote memory q = quote(
+            vault.hashBundle(conditions, ids, outcomes, amounts, 3, borrower, borrower), 41, block.timestamp + 5 minutes
+        );
+        vm.prank(borrower);
+        uint256 bundleId = vault.openBundle(
+            q, signature(q), walletAuthorizationSignature(authorization(q)), conditions, ids, outcomes, amounts, 3
+        );
+        ctf.resolve(conditions[0], UNIT, 0);
+        ctf.resolve(conditions[1], 0, UNIT);
+        vault.settle(bundleId);
+        vm.expectRevert(EventClearVault.InvalidBundleState.selector);
+        vault.settle(bundleId);
+
+        pool.redeemPrincipal(IPrincipalVault(address(vault)), bundleId, 100 * UNIT);
+        vm.expectRevert();
+        pool.redeemPrincipal(IPrincipalVault(address(vault)), bundleId, 100 * UNIT);
+
+        vm.prank(borrower);
+        vault.redeemResidual(bundleId, 1e18);
+        vm.expectRevert();
+        vm.prank(borrower);
+        vault.redeemResidual(bundleId, 1e18);
+    }
+
+    function testActiveCollateralHasNoAdministrativeRescuePath() public {
+        (bytes32[] memory conditions, uint256[] memory ids, uint8[] memory outcomes, uint256[] memory amounts) = legs();
+        EventClearVault.FinancingQuote memory q = quote(
+            vault.hashBundle(conditions, ids, outcomes, amounts, 3, borrower, borrower), 42, block.timestamp + 5 minutes
+        );
+        vm.prank(borrower);
+        vault.openBundle(
+            q, signature(q), walletAuthorizationSignature(authorization(q)), conditions, ids, outcomes, amounts, 3
+        );
+        (bool rescued,) = address(vault)
+            .call(
+                abi.encodeWithSignature(
+                    "rescueERC1155(address,uint256,uint256,address)", address(ctf), ids[0], amounts[0], address(this)
+                )
+            );
+        assertFalse(rescued);
+        assertEq(ctf.balanceOf(address(vault), ids[0]), amounts[0]);
+        assertEq(ctf.balanceOf(address(vault), ids[1]), amounts[1]);
+    }
+
+    function testPoolWithdrawalCannotConsumeRequiredReserve() public {
+        (bytes32[] memory conditions, uint256[] memory ids, uint8[] memory outcomes, uint256[] memory amounts) = legs();
+        EventClearVault.FinancingQuote memory q = quote(
+            vault.hashBundle(conditions, ids, outcomes, amounts, 3, borrower, borrower), 43, block.timestamp + 5 minutes
+        );
+        vm.prank(borrower);
+        vault.openBundle(
+            q, signature(q), walletAuthorizationSignature(authorization(q)), conditions, ids, outcomes, amounts, 3
+        );
+        for (uint256 i; i < 32; ++i) {
+            uint256 available = pool.maxWithdraw(address(this));
+            if (available == 0) break;
+            pool.withdraw(available, address(this), address(this));
+            uint256 requiredReserve = pool.totalAssets() * pool.minimumReserveBps() / 10_000;
+            assertGe(pusd.balanceOf(address(pool)), requiredReserve);
+        }
+        assertEq(pool.outstandingAdvanceCostBasis(), 95_000_000);
+    }
+
     function testReplayAndModifiedAmountsRejected() public {
         (bytes32[] memory conditions, uint256[] memory ids, uint8[] memory outcomes, uint256[] memory amounts) = legs();
         EventClearVault.FinancingQuote memory q =
@@ -468,9 +533,7 @@ contract EventClearLifecycleTest is Test {
         bytes32 bundleHash = vault.hashBundle(conditions, ids, outcomes, amounts, 3, borrower, borrower);
         EventClearVault.FinancingQuote memory capped = quote(bundleHash, 25, block.timestamp + 5 minutes);
         bytes memory cappedSignature = signature(capped);
-        riskPolicy.setLimits(
-            9_500, 366 days, 90 * UNIT, 1_000 * UNIT, 1_000 * UNIT, 1_000 * UNIT, 1_000 * UNIT
-        );
+        riskPolicy.setLimits(9_500, 366 days, 90 * UNIT, 1_000 * UNIT, 1_000 * UNIT, 1_000 * UNIT, 1_000 * UNIT);
         vm.expectRevert(RiskPolicy.RiskLimitExceeded.selector);
         vm.prank(borrower);
         vault.openBundle(
@@ -484,9 +547,7 @@ contract EventClearLifecycleTest is Test {
             3
         );
 
-        riskPolicy.setLimits(
-            9_500, 366 days, 1_000 * UNIT, 1_000 * UNIT, 1_000 * UNIT, 1_000 * UNIT, 1_000 * UNIT
-        );
+        riskPolicy.setLimits(9_500, 366 days, 1_000 * UNIT, 1_000 * UNIT, 1_000 * UNIT, 1_000 * UNIT, 1_000 * UNIT);
         vm.prank(borrower);
         ctf.setApprovalForAll(address(vault), false);
         EventClearVault.FinancingQuote memory noApproval = quote(bundleHash, 26, block.timestamp + 5 minutes);
@@ -635,9 +696,7 @@ contract EventClearLifecycleTest is Test {
     function testFiveMinuteQuoteUsesSixMonthResolutionDuration() public {
         (bytes32[] memory conditions, uint256[] memory ids, uint8[] memory outcomes, uint256[] memory amounts) = legs();
         EventClearVault.FinancingQuote memory q = quote(
-            vault.hashBundle(conditions, ids, outcomes, amounts, 3, borrower, borrower),
-            40,
-            block.timestamp + 5 minutes
+            vault.hashBundle(conditions, ids, outcomes, amounts, 3, borrower, borrower), 40, block.timestamp + 5 minutes
         );
         vm.prank(borrower);
         uint256 bundleId = vault.openBundle(
@@ -659,9 +718,7 @@ contract EventClearLifecycleTest is Test {
         );
         (bytes32[] memory conditions, uint256[] memory ids, uint8[] memory outcomes, uint256[] memory amounts) = legs();
         EventClearVault.FinancingQuote memory q = quote(
-            vault.hashBundle(conditions, ids, outcomes, amounts, 1, borrower, borrower),
-            41,
-            block.timestamp + 5 minutes
+            vault.hashBundle(conditions, ids, outcomes, amounts, 1, borrower, borrower), 41, block.timestamp + 5 minutes
         );
         q.relationshipDefinitionHash = longRelationshipHash;
         q.earliestResolutionTimestamp = block.timestamp + 30 days;
@@ -687,9 +744,7 @@ contract EventClearLifecycleTest is Test {
 
         (bytes32[] memory conditions, uint256[] memory ids, uint8[] memory outcomes, uint256[] memory amounts) = legs();
         EventClearVault.FinancingQuote memory q = quote(
-            vault.hashBundle(conditions, ids, outcomes, amounts, 3, borrower, borrower),
-            42,
-            block.timestamp + 5 minutes
+            vault.hashBundle(conditions, ids, outcomes, amounts, 3, borrower, borrower), 42, block.timestamp + 5 minutes
         );
         q.latestResolutionTimestamp += 1;
         vm.expectRevert(EventClearVault.InvalidQuote.selector);
@@ -702,9 +757,7 @@ contract EventClearLifecycleTest is Test {
     function testAlreadyResolvedMarketFails() public {
         (bytes32[] memory conditions, uint256[] memory ids, uint8[] memory outcomes, uint256[] memory amounts) = legs();
         EventClearVault.FinancingQuote memory resolved = quote(
-            vault.hashBundle(conditions, ids, outcomes, amounts, 3, borrower, borrower),
-            43,
-            block.timestamp + 5 minutes
+            vault.hashBundle(conditions, ids, outcomes, amounts, 3, borrower, borrower), 43, block.timestamp + 5 minutes
         );
         ctf.resolve(conditions[0], UNIT, 0);
         vm.expectRevert(EventClearVault.ConditionsAlreadyResolved.selector);
@@ -719,7 +772,6 @@ contract EventClearLifecycleTest is Test {
             amounts,
             3
         );
-
     }
 
     function testMarketWhoseLatestResolutionTimestampPassedFails() public {
@@ -728,9 +780,7 @@ contract EventClearLifecycleTest is Test {
         registry.register(pastRelationshipHash, 1, 1, 0, 1, 2, keccak256("past-rules"));
         (bytes32[] memory conditions, uint256[] memory ids, uint8[] memory outcomes, uint256[] memory amounts) = legs();
         EventClearVault.FinancingQuote memory past = quote(
-            vault.hashBundle(conditions, ids, outcomes, amounts, 1, borrower, borrower),
-            44,
-            block.timestamp + 5 minutes
+            vault.hashBundle(conditions, ids, outcomes, amounts, 1, borrower, borrower), 44, block.timestamp + 5 minutes
         );
         past.relationshipDefinitionHash = pastRelationshipHash;
         past.earliestResolutionTimestamp = 1;

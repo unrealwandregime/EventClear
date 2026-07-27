@@ -44,6 +44,8 @@ contract EventClearPolygonLifecycleForkTest is Test {
         borrower = vm.addr(SIGNER_KEY);
 
         string memory manifest = vm.readFile("../../config/contracts/polygon-mainnet.json");
+        string memory fixtures = vm.readFile("../../config/contracts/polygon-fork-fixtures.json");
+        vm.rollFork(fixtures.readUint(".originationBlockNumber"));
         address ctfAddress = addressAt(manifest, "conditionalTokens");
         address pusdAddress = addressAt(manifest, "pUSD");
         address usdceAddress = addressAt(manifest, "usdce");
@@ -67,6 +69,14 @@ contract EventClearPolygonLifecycleForkTest is Test {
         vault = new EventClearVault(
             pusd, ctf, registry, claims, pool, IRedemptionAdapter(address(adapter)), riskPolicy, address(this)
         );
+        vm.makePersistent(address(pusd));
+        vm.makePersistent(address(adapter));
+        vm.makePersistent(address(registry));
+        vm.makePersistent(address(claims));
+        vm.makePersistent(address(treasury));
+        vm.makePersistent(address(pool));
+        vm.makePersistent(address(riskPolicy));
+        vm.makePersistent(address(vault));
 
         claims.grantRole(claims.VAULT_ROLE(), address(vault));
         pool.grantRole(pool.VAULT_ROLE(), address(vault));
@@ -139,6 +149,12 @@ contract EventClearPolygonLifecycleForkTest is Test {
         assertEq(ctf.balanceOf(address(vault), noTokenId), UNIT);
         assertEq(pool.outstandingAdvanceCostBasis(), 950_000);
 
+        vm.rollFork(fixtures.readUint(".resolutionBlockNumber"));
+        assertEq(ctf.payoutDenominator(conditionId), 1);
+        // CTF is intentionally not persistent so its real resolution state advances
+        // with the fork. Restore the previously escrowed balance at the vault after
+        // the fork roll; all EventClear accounting remains persistent.
+        dealERC1155(address(ctf), address(vault), noTokenId, UNIT);
         vault.settle(bundleId);
         EventClearVault.Bundle memory bundle = vault.getBundle(bundleId);
         assertEq(uint256(bundle.status), uint256(EventClearVault.BundleStatus.SETTLED));

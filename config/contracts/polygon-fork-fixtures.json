@@ -1,6 +1,8 @@
 {
   "chainId": 137,
   "blockNumber": 90963627,
+  "originationBlockNumber": 90000000,
+  "resolutionBlockNumber": 90600000,
   "capturedAt": "2026-07-27T11:05:00Z",
   "source": "https://gamma-api.polymarket.com/markets?closed=true&limit=100&order=endDate&ascending=false",
   "standardResolvedMarket": {

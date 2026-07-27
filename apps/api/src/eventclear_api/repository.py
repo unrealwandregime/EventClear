@@ -31,7 +31,9 @@ class PostgresStore:
     def initialize(self, seed_demo_data: bool) -> None:
         with self._connection() as connection:
             with connection.cursor() as cursor:
-                cursor.execute("SELECT value FROM api_counters WHERE name = 'quote_nonce'")
+                cursor.execute(
+                    "SELECT value FROM api_counters WHERE name = 'quote_nonce'"
+                )
                 if cursor.fetchone() is None:
                     raise RuntimeError("QUOTE_NONCE_COUNTER_MISSING")
                 if not seed_demo_data:
@@ -227,6 +229,12 @@ class PostgresStore:
     def get_quote(self, quote_id: str) -> dict | None:
         return self._get("quote", quote_id)
 
+    def get_idempotency(self, key: str) -> dict | None:
+        return self._get("idempotency", key)
+
+    def save_idempotency(self, key: str, value: dict) -> None:
+        self._put("idempotency", key, value)
+
     def save_analysis(self, analysis_id: str, value: dict) -> None:
         self._put("analysis", analysis_id, value)
 
@@ -241,6 +249,12 @@ class PostgresStore:
 
     def list_claims(self) -> list[dict]:
         return self._list("claim")
+
+    def get_pool_state(self) -> dict | None:
+        return self._get("pool_state", "current")
+
+    def get_pool_account(self, address: str) -> dict | None:
+        return self._get("pool_account", address.lower())
 
     def get_claim(self, token_id: str) -> dict | None:
         return self._get("claim", token_id)

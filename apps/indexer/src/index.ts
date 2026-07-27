@@ -9,6 +9,7 @@ import {
 import { polygon } from "viem/chains";
 import pg from "pg";
 import { pathToFileURL } from "node:url";
+import { rebuildProjection, type IndexedEvent } from "./projection.js";
 
 const confirmations = BigInt(process.env.INDEXER_CONFIRMATIONS ?? "64");
 const chainId = Number(process.env.CHAIN_ID ?? "137");
@@ -27,7 +28,7 @@ export const protocolAbi = parseAbi([
   "event RelationshipRegistered(bytes32 indexed definitionHash,uint32 version,bytes32 ruleDocumentHash)",
   "event RelationshipStatusChanged(bytes32 indexed definitionHash,uint8 status)",
   "event BundleOpened(uint256 indexed bundleId,address indexed positionWallet,bytes32 indexed relationshipHash)",
-  "event PositionsEscrowed(uint256 indexed bundleId,uint256[] tokenIds,uint256[] amounts)",
+  "event PositionsEscrowed(uint256 indexed bundleId,bytes32[] conditionIds,uint256[] tokenIds,uint256[] amounts)",
   "event AdvanceFunded(uint256 indexed bundleId,uint256 grossAdvance,uint256 originationFee,uint256 netAdvance)",
   "event ClaimsMinted(uint256 indexed bundleId,uint256 principalSupply,uint256 residualSupply)",
   "event SettlementStarted(uint256 indexed bundleId)",
@@ -37,6 +38,7 @@ export const protocolAbi = parseAbi([
   "event PrincipalClaimed(uint256 indexed bundleId,address indexed account,uint256 claimsBurned,uint256 payout)",
   "event ResidualClaimed(uint256 indexed bundleId,address indexed account,uint256 claimsBurned,uint256 payout)",
   "event PrincipalSettled(uint256 indexed bundleId,uint256 principalReceived,uint256 realizedNetYield,uint256 protocolFee)",
+  "event OriginationFeeSettled(uint256 indexed bundleId,uint256 quotedFee,uint256 realizedFee,uint256 refundedFee)",
   "event FeeRecorded(bytes32 indexed source,uint256 amount)",
   "event Deposit(address indexed sender,address indexed owner,uint256 assets,uint256 shares)",
   "event Withdraw(address indexed sender,address indexed receiver,address indexed owner,uint256 assets,uint256 shares)",
@@ -115,6 +117,7 @@ async function ensureCanonicalCheckpoint(): Promise<bigint> {
        ON CONFLICT(chain_id) DO UPDATE SET block_number=EXCLUDED.block_number,block_hash=EXCLUDED.block_hash,updated_at=now()`,
       [chainId, rollbackTo.toString(), canonical.hash],
     );
+    await rebuildReadModels(database);
     await database.query("COMMIT");
   } catch (error) {
     await database.query("ROLLBACK");
@@ -123,6 +126,93 @@ async function ensureCanonicalCheckpoint(): Promise<bigint> {
     database.release();
   }
   return rollbackTo;
+}
+
+async function rebuildReadModels(database: pg.PoolClient) {
+  const result = await database.query(
+    `SELECT block_number,transaction_hash,log_index,event_name,payload,removed
+     FROM chain_events WHERE chain_id=$1 ORDER BY block_number,log_index`,
+    [chainId],
+  );
+  const events: IndexedEvent[] = result.rows.map((row) => ({
+    chainId,
+    blockNumber: BigInt(row.block_number),
+    transactionHash: row.transaction_hash,
+    logIndex: Number(row.log_index),
+    eventName: row.event_name,
+    payload: row.payload,
+    removed: Boolean(row.removed),
+  }));
+  const projection = rebuildProjection(events);
+  const ctfAddress = process.env.CTF_ADDRESS as `0x${string}` | undefined;
+  if (ctfAddress) {
+    for (const bundle of projection.bundles.values()) {
+      const conditionIds = (bundle.conditionIds as Hex[] | undefined) ?? [];
+      if (!conditionIds.length || bundle.status !== "ACTIVE") continue;
+      const denominators = await Promise.all(
+        conditionIds.map((conditionId) =>
+          withRpc((client) =>
+            client.readContract({
+              address: ctfAddress,
+              abi: parseAbi(["function payoutDenominator(bytes32) view returns (uint256)"]),
+              functionName: "payoutDenominator",
+              args: [conditionId],
+            })
+          )
+        ),
+      );
+      bundle.conditionsResolved = denominators.every((value) => value !== 0n);
+      bundle.unresolvedConditions = conditionIds.filter((_, index) => denominators[index] === 0n);
+    }
+  }
+  const fundingPoolAddress = process.env.FUNDING_POOL_ADDRESS as `0x${string}` | undefined;
+  if (fundingPoolAddress) {
+    for (const [owner, account] of projection.poolAccounts) {
+      account.availableWithdrawalAtomic = (
+        await withRpc((client) =>
+          client.readContract({
+            address: fundingPoolAddress,
+            abi: parseAbi(["function maxWithdraw(address) view returns (uint256)"]),
+            functionName: "maxWithdraw",
+            args: [owner as `0x${string}`],
+          })
+        )
+      ).toString();
+    }
+  }
+  await database.query(
+    "DELETE FROM api_read_models WHERE kind IN ('bundle','claim','event','pool_state','pool_account')",
+  );
+  for (const [rawId, bundle] of projection.bundles) {
+    const key = `EC-${rawId.padStart(5, "0")}`;
+    const payload = { ...bundle, id: key, onchainBundleId: rawId };
+    await database.query(
+      "INSERT INTO api_read_models(kind,key,payload) VALUES('bundle',$1,$2::jsonb)",
+      [key, stringify(payload)],
+    );
+  }
+  for (const [key, claim] of projection.claims) {
+    await database.query(
+      "INSERT INTO api_read_models(kind,key,payload) VALUES('claim',$1,$2::jsonb)",
+      [key, stringify(claim)],
+    );
+  }
+  for (const [key, event] of projection.protocolEvents) {
+    await database.query(
+      "INSERT INTO api_read_models(kind,key,payload) VALUES('event',$1,$2::jsonb)",
+      [key, stringify(event)],
+    );
+  }
+  for (const [key, account] of projection.poolAccounts) {
+    await database.query(
+      "INSERT INTO api_read_models(kind,key,payload) VALUES('pool_account',$1,$2::jsonb)",
+      [key, stringify(account)],
+    );
+  }
+  await database.query(
+    "INSERT INTO api_read_models(kind,key,payload) VALUES('pool_state','current',$1::jsonb)",
+    [stringify(projection.pool)],
+  );
 }
 
 async function persistLog(database: pg.PoolClient, log: Log) {
@@ -161,6 +251,7 @@ async function indexRange(fromBlock: bigint, toBlock: bigint) {
   try {
     await database.query("BEGIN");
     for (const log of logs) await persistLog(database, log);
+    await rebuildReadModels(database);
     const block = await withRpc((client) => client.getBlock({ blockNumber: toBlock }));
     await database.query(
       `INSERT INTO indexer_checkpoints(chain_id,block_number,block_hash,updated_at) VALUES($1,$2,$3,now())
