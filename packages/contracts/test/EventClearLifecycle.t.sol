@@ -49,7 +49,15 @@ contract EventClearLifecycleTest is Test {
         pool.grantRole(pool.VAULT_ROLE(), address(vault));
         treasury.grantRole(treasury.RECORDER_ROLE(), address(pool));
         riskPolicy.grantRole(riskPolicy.VAULT_ROLE(), address(vault));
-        registry.register(relationshipHash, 3, uint64(block.timestamp), 0, keccak256("rules"));
+        registry.register(
+            relationshipHash,
+            3,
+            uint64(block.timestamp),
+            0,
+            block.timestamp + 30 days,
+            block.timestamp + 180 days,
+            keccak256("rules")
+        );
         pusd.mint(address(this), 1_000 * UNIT);
         pusd.approve(address(pool), type(uint256).max);
         pool.deposit(1_000 * UNIT, address(this));
@@ -73,6 +81,8 @@ contract EventClearLifecycleTest is Test {
             walletAuthorizationHash: bytes32(0),
             relationshipDefinitionHash: relationshipHash,
             solverArtifactHash: keccak256("proof"),
+            earliestResolutionTimestamp: block.timestamp + 30 days,
+            latestResolutionTimestamp: block.timestamp + 180 days,
             guaranteedFloor: 100 * UNIT,
             principalAmount: 100 * UNIT,
             grossAdvance: 95_000_000,
@@ -90,7 +100,7 @@ contract EventClearLifecycleTest is Test {
 
     function signature(EventClearVault.FinancingQuote memory q) internal view returns (bytes memory) {
         bytes32 typehash = keccak256(
-            "FinancingQuote(address borrower,address positionWallet,bytes32 bundleHash,bytes32 walletAuthorizationHash,bytes32 relationshipDefinitionHash,bytes32 solverArtifactHash,uint256 guaranteedFloor,uint256 principalAmount,uint256 grossAdvance,uint256 originationFee,uint256 netAdvance,uint256 expiry,uint256 nonce,uint256 chainId,address vault,address fundingPool,address collateralToken)"
+            "FinancingQuote(address borrower,address positionWallet,bytes32 bundleHash,bytes32 walletAuthorizationHash,bytes32 relationshipDefinitionHash,bytes32 solverArtifactHash,uint256 earliestResolutionTimestamp,uint256 latestResolutionTimestamp,uint256 guaranteedFloor,uint256 principalAmount,uint256 grossAdvance,uint256 originationFee,uint256 netAdvance,uint256 expiry,uint256 nonce,uint256 chainId,address vault,address fundingPool,address collateralToken)"
         );
         bytes32 structHash = keccak256(
             abi.encode(
@@ -101,6 +111,8 @@ contract EventClearLifecycleTest is Test {
                 q.walletAuthorizationHash,
                 q.relationshipDefinitionHash,
                 q.solverArtifactHash,
+                q.earliestResolutionTimestamp,
+                q.latestResolutionTimestamp,
                 q.guaranteedFloor,
                 q.principalAmount,
                 q.grossAdvance,
@@ -441,7 +453,9 @@ contract EventClearLifecycleTest is Test {
         bytes32 bundleHash = vault.hashBundle(conditions, ids, outcomes, amounts, 3, borrower, borrower);
         EventClearVault.FinancingQuote memory capped = quote(bundleHash, 25, block.timestamp + 5 minutes);
         bytes memory cappedSignature = signature(capped);
-        riskPolicy.setLimits(9_500, 1 days, 90 * UNIT, 1_000 * UNIT, 1_000 * UNIT, 1_000 * UNIT, 1_000 * UNIT);
+        riskPolicy.setLimits(
+            9_500, 366 days, 90 * UNIT, 1_000 * UNIT, 1_000 * UNIT, 1_000 * UNIT, 1_000 * UNIT
+        );
         vm.expectRevert(RiskPolicy.RiskLimitExceeded.selector);
         vm.prank(borrower);
         vault.openBundle(
@@ -455,7 +469,9 @@ contract EventClearLifecycleTest is Test {
             3
         );
 
-        riskPolicy.setLimits(9_500, 1 days, 1_000 * UNIT, 1_000 * UNIT, 1_000 * UNIT, 1_000 * UNIT, 1_000 * UNIT);
+        riskPolicy.setLimits(
+            9_500, 366 days, 1_000 * UNIT, 1_000 * UNIT, 1_000 * UNIT, 1_000 * UNIT, 1_000 * UNIT
+        );
         vm.prank(borrower);
         ctf.setApprovalForAll(address(vault), false);
         EventClearVault.FinancingQuote memory noApproval = quote(bundleHash, 26, block.timestamp + 5 minutes);
@@ -598,6 +614,123 @@ contract EventClearLifecycleTest is Test {
         vm.prank(borrower);
         vault.openBundle(
             q, sig, walletAuthorizationProof(wrongBundle, BORROWER_KEY), conditions, ids, outcomes, amounts, 3
+        );
+    }
+
+    function testFiveMinuteQuoteUsesSixMonthResolutionDuration() public {
+        (bytes32[] memory conditions, uint256[] memory ids, uint8[] memory outcomes, uint256[] memory amounts) = legs();
+        EventClearVault.FinancingQuote memory q = quote(
+            vault.hashBundle(conditions, ids, outcomes, amounts, 3, borrower, borrower),
+            40,
+            block.timestamp + 5 minutes
+        );
+        vm.prank(borrower);
+        uint256 bundleId = vault.openBundle(
+            q, signature(q), walletAuthorizationSignature(authorization(q)), conditions, ids, outcomes, amounts, 3
+        );
+        assertEq(uint256(vault.getBundle(bundleId).status), uint256(EventClearVault.BundleStatus.ACTIVE));
+    }
+
+    function testTwoYearMarketExceedsMaximumDuration() public {
+        bytes32 longRelationshipHash = keccak256("two-year-market");
+        registry.register(
+            longRelationshipHash,
+            1,
+            uint64(block.timestamp),
+            0,
+            block.timestamp + 30 days,
+            block.timestamp + 730 days,
+            keccak256("long-rules")
+        );
+        (bytes32[] memory conditions, uint256[] memory ids, uint8[] memory outcomes, uint256[] memory amounts) = legs();
+        EventClearVault.FinancingQuote memory q = quote(
+            vault.hashBundle(conditions, ids, outcomes, amounts, 1, borrower, borrower),
+            41,
+            block.timestamp + 5 minutes
+        );
+        q.relationshipDefinitionHash = longRelationshipHash;
+        q.earliestResolutionTimestamp = block.timestamp + 30 days;
+        q.latestResolutionTimestamp = block.timestamp + 730 days;
+        vm.expectRevert(RiskPolicy.RiskLimitExceeded.selector);
+        vm.prank(borrower);
+        vault.openBundle(
+            q, signature(q), walletAuthorizationSignature(authorization(q)), conditions, ids, outcomes, amounts, 1
+        );
+    }
+
+    function testInconsistentAndModifiedResolutionTimestampsFail() public {
+        vm.expectRevert(RelationshipRegistry.InvalidInterval.selector);
+        registry.register(
+            keccak256("invalid-window"),
+            1,
+            uint64(block.timestamp),
+            0,
+            block.timestamp + 2 days,
+            block.timestamp + 1 days,
+            keccak256("invalid-rules")
+        );
+
+        (bytes32[] memory conditions, uint256[] memory ids, uint8[] memory outcomes, uint256[] memory amounts) = legs();
+        EventClearVault.FinancingQuote memory q = quote(
+            vault.hashBundle(conditions, ids, outcomes, amounts, 3, borrower, borrower),
+            42,
+            block.timestamp + 5 minutes
+        );
+        q.latestResolutionTimestamp += 1;
+        vm.expectRevert(EventClearVault.InvalidQuote.selector);
+        vm.prank(borrower);
+        vault.openBundle(
+            q, signature(q), walletAuthorizationSignature(authorization(q)), conditions, ids, outcomes, amounts, 3
+        );
+    }
+
+    function testAlreadyResolvedMarketFails() public {
+        (bytes32[] memory conditions, uint256[] memory ids, uint8[] memory outcomes, uint256[] memory amounts) = legs();
+        EventClearVault.FinancingQuote memory resolved = quote(
+            vault.hashBundle(conditions, ids, outcomes, amounts, 3, borrower, borrower),
+            43,
+            block.timestamp + 5 minutes
+        );
+        ctf.resolve(conditions[0], UNIT, 0);
+        vm.expectRevert(EventClearVault.ConditionsAlreadyResolved.selector);
+        vm.prank(borrower);
+        vault.openBundle(
+            resolved,
+            signature(resolved),
+            walletAuthorizationSignature(authorization(resolved)),
+            conditions,
+            ids,
+            outcomes,
+            amounts,
+            3
+        );
+
+    }
+
+    function testMarketWhoseLatestResolutionTimestampPassedFails() public {
+        vm.warp(100);
+        bytes32 pastRelationshipHash = keccak256("past-market");
+        registry.register(pastRelationshipHash, 1, 1, 0, 1, 2, keccak256("past-rules"));
+        (bytes32[] memory conditions, uint256[] memory ids, uint8[] memory outcomes, uint256[] memory amounts) = legs();
+        EventClearVault.FinancingQuote memory past = quote(
+            vault.hashBundle(conditions, ids, outcomes, amounts, 1, borrower, borrower),
+            44,
+            block.timestamp + 5 minutes
+        );
+        past.relationshipDefinitionHash = pastRelationshipHash;
+        past.earliestResolutionTimestamp = 1;
+        past.latestResolutionTimestamp = 2;
+        vm.expectRevert(RiskPolicy.InvalidRiskInput.selector);
+        vm.prank(borrower);
+        vault.openBundle(
+            past,
+            signature(past),
+            walletAuthorizationSignature(authorization(past)),
+            conditions,
+            ids,
+            outcomes,
+            amounts,
+            1
         );
     }
 }

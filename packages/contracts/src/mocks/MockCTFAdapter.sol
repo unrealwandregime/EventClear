@@ -22,6 +22,13 @@ contract MockCTFAdapter is ERC1155Holder {
         return true;
     }
 
+    function anyResolved(bytes32[] calldata conditionIds) external view returns (bool) {
+        for (uint256 i; i < conditionIds.length; ++i) {
+            if (positions.payoutYes(conditionIds[i]) + positions.payoutNo(conditionIds[i]) == 1_000_000) return true;
+        }
+        return false;
+    }
+
     function redeem(bytes32[] calldata, uint256[] calldata tokenIds, uint256[] calldata amounts) external {
         uint256 payout;
         for (uint256 i; i < tokenIds.length; ++i) {

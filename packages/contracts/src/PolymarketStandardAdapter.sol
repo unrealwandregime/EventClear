@@ -116,6 +116,13 @@ contract PolymarketStandardAdapter {
         return true;
     }
 
+    function anyResolved(bytes32[] calldata conditionIds) external view returns (bool) {
+        for (uint256 i; i < conditionIds.length; ++i) {
+            if (conditionalTokens.payoutDenominator(conditionIds[i]) != 0) return true;
+        }
+        return false;
+    }
+
     function redeem(bytes32[] calldata conditionIds, uint256[] calldata tokenIds, uint256[] calldata amounts) external {
         uint256 length = conditionIds.length;
         if (length == 0 || length != tokenIds.length || length != amounts.length) revert InvalidLegs();

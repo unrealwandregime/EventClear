@@ -40,6 +40,8 @@ RELATIONSHIPS = [{
     "approvedBy": "local-reviewer",
     "approvedAt": "2026-07-27T00:00:00Z",
     "validFrom": "2026-07-27T00:00:00Z",
+    "earliestResolutionTimestamp": 1798761599,
+    "latestResolutionTimestamp": 1799366399,
 }, {
     "id": "eth-close-ladder",
     "version": 1,
@@ -52,6 +54,8 @@ RELATIONSHIPS = [{
     "approvedBy": "local-reviewer",
     "approvedAt": "2026-07-27T00:00:00Z",
     "validFrom": "2026-07-27T00:00:00Z",
+    "earliestResolutionTimestamp": 1790812799,
+    "latestResolutionTimestamp": 1791417599,
 }, {
     "id": "btc-suspended-ladder",
     "version": 1,
@@ -64,6 +68,8 @@ RELATIONSHIPS = [{
     "approvedBy": "local-reviewer",
     "approvedAt": "2026-07-27T00:00:00Z",
     "validFrom": "2026-07-27T00:00:00Z",
+    "earliestResolutionTimestamp": 1798761599,
+    "latestResolutionTimestamp": 1799366399,
 }]
 
 POSITIONS = [

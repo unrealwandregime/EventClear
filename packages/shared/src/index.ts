@@ -67,6 +67,8 @@ export type FinancingQuote = {
   walletAuthorizationHash: `0x${string}`;
   relationshipDefinitionHash: `0x${string}`;
   solverArtifactHash: `0x${string}`;
+  earliestResolutionTimestamp: bigint;
+  latestResolutionTimestamp: bigint;
   guaranteedFloor: bigint;
   principalAmount: bigint;
   grossAdvance: bigint;

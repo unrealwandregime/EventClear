@@ -122,6 +122,13 @@ def issue_quote(payload: dict, settings: Settings, nonce: int) -> dict:
     position_wallet = payload.get("positionWallet", payload.get("accountWallet"))
     if not borrower or not position_wallet:
         raise ValueError("BORROWER_AND_POSITION_WALLET_REQUIRED")
+    try:
+        earliest_resolution_timestamp = int(payload["earliestResolutionTimestamp"])
+        latest_resolution_timestamp = int(payload["latestResolutionTimestamp"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("TRUSTED_RESOLUTION_WINDOW_REQUIRED") from exc
+    if earliest_resolution_timestamp <= 0 or latest_resolution_timestamp < earliest_resolution_timestamp:
+        raise ValueError("INVALID_RESOLUTION_WINDOW")
     exact_bundle_hash = bundle_hash(
         legs,
         adapter=settings.adapter_address,
@@ -148,6 +155,8 @@ def issue_quote(payload: dict, settings: Settings, nonce: int) -> dict:
         "walletAuthorizationHash": position_wallet_authorization_hash(wallet_authorization),
         "relationshipDefinitionHash": request.relationshipDefinitionHash,
         "solverArtifactHash": result.artifactHash,
+        "earliestResolutionTimestamp": earliest_resolution_timestamp,
+        "latestResolutionTimestamp": latest_resolution_timestamp,
         "guaranteedFloor": floor,
         "principalAmount": floor,
         "grossAdvance": gross_advance,
@@ -168,6 +177,8 @@ def issue_quote(payload: dict, settings: Settings, nonce: int) -> dict:
         {"name": "walletAuthorizationHash", "type": "bytes32"},
         {"name": "relationshipDefinitionHash", "type": "bytes32"},
         {"name": "solverArtifactHash", "type": "bytes32"},
+        {"name": "earliestResolutionTimestamp", "type": "uint256"},
+        {"name": "latestResolutionTimestamp", "type": "uint256"},
         {"name": "guaranteedFloor", "type": "uint256"},
         {"name": "principalAmount", "type": "uint256"},
         {"name": "grossAdvance", "type": "uint256"},

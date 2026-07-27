@@ -17,6 +17,7 @@ import {RelationshipRegistry} from "./RelationshipRegistry.sol";
 import {RiskPolicy} from "./RiskPolicy.sol";
 
 interface IRedemptionAdapter {
+    function anyResolved(bytes32[] calldata conditionIds) external view returns (bool);
     function areResolved(bytes32[] calldata conditionIds) external view returns (bool);
     function redeem(bytes32[] calldata conditionIds, uint256[] calldata tokenIds, uint256[] calldata amounts) external;
 }
@@ -28,7 +29,7 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
     uint256 public constant RESIDUAL_SHARE_SUPPLY = 1e18;
     bytes32 private constant QUOTE_TYPEHASH = keccak256(
-        "FinancingQuote(address borrower,address positionWallet,bytes32 bundleHash,bytes32 walletAuthorizationHash,bytes32 relationshipDefinitionHash,bytes32 solverArtifactHash,uint256 guaranteedFloor,uint256 principalAmount,uint256 grossAdvance,uint256 originationFee,uint256 netAdvance,uint256 expiry,uint256 nonce,uint256 chainId,address vault,address fundingPool,address collateralToken)"
+        "FinancingQuote(address borrower,address positionWallet,bytes32 bundleHash,bytes32 walletAuthorizationHash,bytes32 relationshipDefinitionHash,bytes32 solverArtifactHash,uint256 earliestResolutionTimestamp,uint256 latestResolutionTimestamp,uint256 guaranteedFloor,uint256 principalAmount,uint256 grossAdvance,uint256 originationFee,uint256 netAdvance,uint256 expiry,uint256 nonce,uint256 chainId,address vault,address fundingPool,address collateralToken)"
     );
     bytes32 private constant POSITION_WALLET_AUTHORIZATION_TYPEHASH = keccak256(
         "PositionWalletAuthorization(address controllingSigner,address borrower,address positionWallet,bytes32 bundleHash,address vault,uint256 chainId,uint256 nonce,uint256 expiry)"
@@ -50,6 +51,8 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
         bytes32 walletAuthorizationHash;
         bytes32 relationshipDefinitionHash;
         bytes32 solverArtifactHash;
+        uint256 earliestResolutionTimestamp;
+        uint256 latestResolutionTimestamp;
         uint256 guaranteedFloor;
         uint256 principalAmount;
         uint256 grossAdvance;
@@ -117,6 +120,7 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
     error OriginationPaused();
     error InvalidBundleState();
     error ConditionsUnresolved();
+    error ConditionsAlreadyResolved();
     error NothingToClaim();
 
     event BundleOpened(uint256 indexed bundleId, address indexed positionWallet, bytes32 indexed relationshipHash);
@@ -291,6 +295,14 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
         ) revert InvalidQuote();
         if (!registry.isActive(quote.relationshipDefinitionHash)) revert RelationshipInactive();
         if (registry.versionOf(quote.relationshipDefinitionHash) != relationshipVersion) revert InvalidQuote();
+        (uint256 earliestResolutionTimestamp, uint256 latestResolutionTimestamp) =
+            registry.resolutionWindowOf(quote.relationshipDefinitionHash);
+        if (
+            quote.earliestResolutionTimestamp != earliestResolutionTimestamp
+                || quote.latestResolutionTimestamp != latestResolutionTimestamp
+                || earliestResolutionTimestamp > latestResolutionTimestamp
+        ) revert InvalidQuote();
+        if (adapter.anyResolved(conditionIds)) revert ConditionsAlreadyResolved();
         bytes32 digest = _hashTypedDataV4(
             keccak256(
                 abi.encode(
@@ -301,6 +313,8 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
                     quote.walletAuthorizationHash,
                     quote.relationshipDefinitionHash,
                     quote.solverArtifactHash,
+                    quote.earliestResolutionTimestamp,
+                    quote.latestResolutionTimestamp,
                     quote.guaranteedFloor,
                     quote.principalAmount,
                     quote.grossAdvance,
@@ -327,7 +341,8 @@ contract EventClearVault is AccessControl, Pausable, ReentrancyGuard, EIP712, ER
             address(collateral),
             quote.guaranteedFloor,
             quote.grossAdvance,
-            quote.expiry
+            quote.expiry,
+            quote.latestResolutionTimestamp
         );
 
         bundleId = nextBundleId++;

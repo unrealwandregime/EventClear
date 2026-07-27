@@ -45,7 +45,15 @@ contract DemoLifecycle is Script {
         pool.grantRole(pool.VAULT_ROLE(), address(vault));
         treasury.grantRole(treasury.RECORDER_ROLE(), address(pool));
         riskPolicy.grantRole(riskPolicy.VAULT_ROLE(), address(vault));
-        registry.register(relationshipHash, 3, uint64(block.timestamp), 0, keccak256("reviewed-rules"));
+        registry.register(
+            relationshipHash,
+            3,
+            uint64(block.timestamp),
+            0,
+            block.timestamp + 30 days,
+            block.timestamp + 180 days,
+            keccak256("reviewed-rules")
+        );
         pusd.mint(deployer, 1_000 * UNIT);
         pusd.approve(address(pool), type(uint256).max);
         pool.deposit(1_000 * UNIT, deployer);
@@ -77,6 +85,8 @@ contract DemoLifecycle is Script {
             walletAuthorizationHash: bytes32(0),
             relationshipDefinitionHash: relationshipHash,
             solverArtifactHash: keccak256("demo-proof-artifact"),
+            earliestResolutionTimestamp: block.timestamp + 30 days,
+            latestResolutionTimestamp: block.timestamp + 180 days,
             guaranteedFloor: 100 * UNIT,
             principalAmount: 100 * UNIT,
             grossAdvance: 95_000_000,
@@ -129,7 +139,7 @@ contract DemoLifecycle is Script {
         returns (bytes memory)
     {
         bytes32 typehash = keccak256(
-            "FinancingQuote(address borrower,address positionWallet,bytes32 bundleHash,bytes32 walletAuthorizationHash,bytes32 relationshipDefinitionHash,bytes32 solverArtifactHash,uint256 guaranteedFloor,uint256 principalAmount,uint256 grossAdvance,uint256 originationFee,uint256 netAdvance,uint256 expiry,uint256 nonce,uint256 chainId,address vault,address fundingPool,address collateralToken)"
+            "FinancingQuote(address borrower,address positionWallet,bytes32 bundleHash,bytes32 walletAuthorizationHash,bytes32 relationshipDefinitionHash,bytes32 solverArtifactHash,uint256 earliestResolutionTimestamp,uint256 latestResolutionTimestamp,uint256 guaranteedFloor,uint256 principalAmount,uint256 grossAdvance,uint256 originationFee,uint256 netAdvance,uint256 expiry,uint256 nonce,uint256 chainId,address vault,address fundingPool,address collateralToken)"
         );
         bytes32 structHash = keccak256(
             abi.encode(
@@ -140,6 +150,8 @@ contract DemoLifecycle is Script {
                 quote.walletAuthorizationHash,
                 quote.relationshipDefinitionHash,
                 quote.solverArtifactHash,
+                quote.earliestResolutionTimestamp,
+                quote.latestResolutionTimestamp,
                 quote.guaranteedFloor,
                 quote.principalAmount,
                 quote.grossAdvance,

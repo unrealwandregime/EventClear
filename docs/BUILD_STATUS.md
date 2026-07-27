@@ -23,8 +23,6 @@ Baseline commit: `7d65bb3bf8fd5d714a3c8a536389ebc5f2e76b10`
 
 In progress:
 
-- Reviewed resolution timestamps and duration enforcement independent of quote
-  expiry.
 - Settlement-only fee realization.
 - Trusted quote pre-sign validation, generated threshold worlds, connected UI,
   indexer completion, browser E2E, CI and staging preparation.
@@ -43,6 +41,15 @@ Completed in this sprint:
   modified, expired, replayed, wrong-signer, wrong-chain, wrong-vault and
   different-bundle authorizations.
 - Deposit Wallet, Proxy, Safe and unknown contract wallets remain read-only.
+- Relationship registry records reviewed earliest/latest resolution timestamps;
+  the quote API derives them from the approved relationship and includes them
+  in the signed EIP-712 quote.
+- `RiskPolicy` measures maximum bundle duration from the latest resolution
+  timestamp, independently of the short quote-signature expiry.
+- Vault validation rejects modified resolution bounds, already-resolved
+  conditions and markets whose latest resolution timestamp has passed.
+- Regression coverage proves a five-minute quote can finance a six-month
+  market while a two-year market exceeds the configured duration cap.
 
 ## Milestone 0 — Existing repository audit
 

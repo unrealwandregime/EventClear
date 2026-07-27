@@ -72,7 +72,15 @@ contract EventClearPolygonLifecycleForkTest is Test {
         pool.grantRole(pool.VAULT_ROLE(), address(vault));
         treasury.grantRole(treasury.RECORDER_ROLE(), address(pool));
         riskPolicy.grantRole(riskPolicy.VAULT_ROLE(), address(vault));
-        registry.register(RELATIONSHIP_HASH, 1, uint64(block.timestamp), 0, keccak256("fork-lifecycle-rules"));
+        registry.register(
+            RELATIONSHIP_HASH,
+            1,
+            uint64(block.timestamp),
+            0,
+            block.timestamp + 1 days,
+            block.timestamp + 30 days,
+            keccak256("fork-lifecycle-rules")
+        );
 
         deal(address(pusd), address(this), 10 * UNIT);
         pusd.approve(address(pool), type(uint256).max);
@@ -106,6 +114,8 @@ contract EventClearPolygonLifecycleForkTest is Test {
             walletAuthorizationHash: bytes32(0),
             relationshipDefinitionHash: RELATIONSHIP_HASH,
             solverArtifactHash: keccak256("fork-proof"),
+            earliestResolutionTimestamp: block.timestamp + 1 days,
+            latestResolutionTimestamp: block.timestamp + 30 days,
             guaranteedFloor: UNIT,
             principalAmount: UNIT,
             grossAdvance: 950_000,
@@ -151,7 +161,7 @@ contract EventClearPolygonLifecycleForkTest is Test {
 
     function signature(EventClearVault.FinancingQuote memory q) internal view returns (bytes memory) {
         bytes32 typehash = keccak256(
-            "FinancingQuote(address borrower,address positionWallet,bytes32 bundleHash,bytes32 walletAuthorizationHash,bytes32 relationshipDefinitionHash,bytes32 solverArtifactHash,uint256 guaranteedFloor,uint256 principalAmount,uint256 grossAdvance,uint256 originationFee,uint256 netAdvance,uint256 expiry,uint256 nonce,uint256 chainId,address vault,address fundingPool,address collateralToken)"
+            "FinancingQuote(address borrower,address positionWallet,bytes32 bundleHash,bytes32 walletAuthorizationHash,bytes32 relationshipDefinitionHash,bytes32 solverArtifactHash,uint256 earliestResolutionTimestamp,uint256 latestResolutionTimestamp,uint256 guaranteedFloor,uint256 principalAmount,uint256 grossAdvance,uint256 originationFee,uint256 netAdvance,uint256 expiry,uint256 nonce,uint256 chainId,address vault,address fundingPool,address collateralToken)"
         );
         bytes32 structHash = keccak256(
             abi.encode(
@@ -162,6 +172,8 @@ contract EventClearPolygonLifecycleForkTest is Test {
                 q.walletAuthorizationHash,
                 q.relationshipDefinitionHash,
                 q.solverArtifactHash,
+                q.earliestResolutionTimestamp,
+                q.latestResolutionTimestamp,
                 q.guaranteedFloor,
                 q.principalAmount,
                 q.grossAdvance,

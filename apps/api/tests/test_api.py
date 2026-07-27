@@ -154,6 +154,8 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(body["quote"]["grossAdvance"], "95000000")
         self.assertEqual(body["quote"]["originationFee"], "475000")
         self.assertEqual(body["quote"]["netAdvance"], "94525000")
+        self.assertEqual(body["quote"]["earliestResolutionTimestamp"], "1798761599")
+        self.assertEqual(body["quote"]["latestResolutionTimestamp"], "1799366399")
         self.assertTrue(body["signature"].startswith("0x"))
         self.assertEqual(len(body["quote"]["bundleHash"]), 66)
         self.assertEqual(len(body["quote"]["walletAuthorizationHash"]), 66)
@@ -194,6 +196,33 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["quote"]["guaranteedFloor"], "100000000")
         self.assertEqual(response.json()["requestPayload"]["solverRequest"]["definitionVersion"], 3)
+
+    def test_quote_ignores_client_supplied_resolution_window(self):
+        payload = {
+            "accountWallet": "0x0000000000000000000000000000000000000001",
+            "earliestResolutionTimestamp": 1,
+            "latestResolutionTimestamp": 2,
+            "solverRequest": {
+                "relationshipDefinitionHash": "0x" + "ab" * 32,
+                "definitionVersion": 3,
+                "legs": [
+                    {"conditionId": "0x" + "11" * 32, "tokenId": "1", "outcome": "YES", "amountAtomic": "100000000"},
+                    {"conditionId": "0x" + "22" * 32, "tokenId": "4", "outcome": "NO", "amountAtomic": "100000000"},
+                ],
+                "payoutModel": {},
+            },
+        }
+        response = self.client.post(
+            "/api/v1/quotes",
+            json=payload,
+            headers=self.session_headers(payload["accountWallet"]),
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["quote"]["earliestResolutionTimestamp"], "1798761599")
+        self.assertEqual(body["quote"]["latestResolutionTimestamp"], "1799366399")
+        self.assertEqual(body["requestPayload"]["earliestResolutionTimestamp"], 1798761599)
+        self.assertEqual(body["requestPayload"]["latestResolutionTimestamp"], 1799366399)
 
     def test_quote_rejects_siwe_and_position_wallet_mismatch(self):
         payload = {

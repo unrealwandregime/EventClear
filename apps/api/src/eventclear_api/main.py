@@ -437,6 +437,8 @@ async def quote(payload: dict, current: dict = Depends(authenticated_session)):
     if not trusted_definition:
         raise HTTPException(422, detail={"code": "REVIEWED_SOLVER_DEFINITION_MISSING"})
     trusted_payload = deepcopy(payload)
+    trusted_payload["earliestResolutionTimestamp"] = relationship["earliestResolutionTimestamp"]
+    trusted_payload["latestResolutionTimestamp"] = relationship["latestResolutionTimestamp"]
     trusted_payload["solverRequest"] = {
         **trusted_payload.get("solverRequest", {}),
         "relationshipDefinitionHash": relationship["canonicalDefinitionHash"],
@@ -477,6 +479,17 @@ async def refresh_quote(quote_id: str, current: dict = Depends(authenticated_ses
     if settings.normalized_mode == "production-readonly":
         raise HTTPException(403, detail={"code": "PRODUCTION_READONLY"})
     trusted_previous_payload = bind_eoa_quote_identity(previous["requestPayload"], current)
+    relationship = store.get_relationship_by_hash(
+        trusted_previous_payload.get("solverRequest", {}).get("relationshipDefinitionHash", "")
+    )
+    if not relationship or relationship["status"] != "APPROVED":
+        raise HTTPException(422, detail={"code": "RELATIONSHIP_NOT_ACTIVE"})
+    trusted_previous_payload["earliestResolutionTimestamp"] = relationship[
+        "earliestResolutionTimestamp"
+    ]
+    trusted_previous_payload["latestResolutionTimestamp"] = relationship[
+        "latestResolutionTimestamp"
+    ]
     if settings.normalized_mode not in {"local", "test"}:
         token_ids = [
             str(leg.get("tokenId", ""))

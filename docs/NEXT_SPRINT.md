@@ -7,8 +7,8 @@ Baseline: `7d65bb3bf8fd5d714a3c8a536389ebc5f2e76b10`
 - [x] Enforce SIWE signer = borrower = EOA position wallet = transaction sender.
 - [x] Bind a versioned, non-replayable position-wallet authorization hash.
 - [x] Keep unverified Deposit Wallet, Proxy and Safe paths read-only.
-- [ ] Commit reviewed resolution timestamps in registry and signed quotes.
-- [ ] Enforce maximum duration from latest resolution, never quote expiry.
+- [x] Commit reviewed resolution timestamps in registry and signed quotes.
+- [x] Enforce maximum duration from latest resolution, never quote expiry.
 - [ ] Realize quoted origination fees only from successful financing return.
 - [ ] Pay no protocol fee on break-even or shortfall settlement.
 - [ ] Revalidate relationship, proof, balances, market state, liquidity and risk

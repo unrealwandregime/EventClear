@@ -77,12 +77,13 @@ contract RiskPolicy is AccessControl {
         address collateral,
         uint256 guaranteedFloor,
         uint256 grossAdvance,
-        uint256 expiry
+        uint256 expiry,
+        uint256 latestResolutionTimestamp
     ) external onlyRole(VAULT_ROLE) {
         if (originationsPaused) revert OriginationsPaused();
         if (
             wallet == address(0) || relationshipHash == bytes32(0) || marketIds.length == 0 || guaranteedFloor == 0
-                || grossAdvance == 0 || expiry < block.timestamp
+                || grossAdvance == 0 || expiry < block.timestamp || latestResolutionTimestamp <= block.timestamp
         ) revert InvalidRiskInput();
         if (
             !allowedRelationshipSchemas[relationshipSchema] || !allowedAdapters[adapter]
@@ -90,7 +91,7 @@ contract RiskPolicy is AccessControl {
         ) revert UnsupportedConfiguration();
         if (
             grossAdvance > maximumGrossAdvance || grossAdvance * 10_000 > guaranteedFloor * maximumAdvanceRatioBps
-                || expiry - block.timestamp > maximumBundleDuration
+                || latestResolutionTimestamp - block.timestamp > maximumBundleDuration
                 || walletExposure[wallet] + grossAdvance > perWalletExposureCap
                 || relationshipExposure[relationshipHash] + grossAdvance > perRelationshipExposureCap
                 || globalExposure + grossAdvance > globalExposureCap

@@ -20,6 +20,8 @@ contract RelationshipRegistry is AccessControl {
         Status status;
         uint64 validFrom;
         uint64 validUntil;
+        uint256 earliestResolutionTimestamp;
+        uint256 latestResolutionTimestamp;
         bytes32 ruleDocumentHash;
     }
 
@@ -43,12 +45,25 @@ contract RelationshipRegistry is AccessControl {
         uint32 version,
         uint64 validFrom,
         uint64 validUntil,
+        uint256 earliestResolutionTimestamp,
+        uint256 latestResolutionTimestamp,
         bytes32 ruleDocumentHash
     ) external onlyRole(REVIEWER_ROLE) {
         if (definitionHash == bytes32(0) || version == 0) revert InvalidStatus();
         if (definitions[definitionHash].status != Status.NONE) revert AlreadyRegistered();
         if (validUntil != 0 && validUntil <= validFrom) revert InvalidInterval();
-        definitions[definitionHash] = Definition(version, Status.APPROVED, validFrom, validUntil, ruleDocumentHash);
+        if (
+            earliestResolutionTimestamp == 0 || latestResolutionTimestamp < earliestResolutionTimestamp
+        ) revert InvalidInterval();
+        definitions[definitionHash] = Definition(
+            version,
+            Status.APPROVED,
+            validFrom,
+            validUntil,
+            earliestResolutionTimestamp,
+            latestResolutionTimestamp,
+            ruleDocumentHash
+        );
         emit RelationshipRegistered(definitionHash, version, ruleDocumentHash);
     }
 
@@ -73,5 +88,14 @@ contract RelationshipRegistry is AccessControl {
 
     function versionOf(bytes32 definitionHash) external view returns (uint32) {
         return definitions[definitionHash].version;
+    }
+
+    function resolutionWindowOf(bytes32 definitionHash)
+        external
+        view
+        returns (uint256 earliestResolutionTimestamp, uint256 latestResolutionTimestamp)
+    {
+        Definition memory item = definitions[definitionHash];
+        return (item.earliestResolutionTimestamp, item.latestResolutionTimestamp);
     }
 }
