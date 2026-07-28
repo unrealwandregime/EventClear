@@ -25,7 +25,8 @@ environment. Secret values were not read or recorded.
 
 - Access mode: `public`
 - Active URL: `https://eventclear-protocol.thecryptotom.chatgpt.site`
-- Latest saved version at audit time: `10`
+- Latest deployed version after refresh: `11`
+- Version 11 source commit: `595be4926a39667340311395b3a943d43bd8c05e`
 - Hosted environment-variable revision: `0`
 - Hosted runtime variables: none
 
@@ -33,9 +34,11 @@ environment. Secret values were not read or recorded.
 
 The first operation that cannot be performed is creation of the managed
 staging project and its PostgreSQL, Redis, object-storage, secret and service
-resources. Railway is the selected preparation target because no incumbent
-execution platform is connected and it is the least complex option in the
-allowed provider order.
+resources. AWS is the selected preparation target because no incumbent
+execution platform is connected and the complete control set requires
+ECS/Fargate, RDS, ElastiCache, encrypted/versioned S3, KMS, Secrets Manager and
+CloudWatch. Railway was evaluated but its native bucket and database
+operational guarantees do not satisfy this release boundary.
 
 External staging remains **incomplete**. No staging URL, contract address,
 transaction hash, alert identifier, backup, restore or rollback result may be
@@ -46,11 +49,10 @@ recorded until the provider resources exist and are independently reachable.
 Provide all of the following through provider/GitHub secret storage, never in
 chat or source control:
 
-1. An authenticated Railway project with permission to create services,
-   PostgreSQL, Redis, volumes and private variables.
-2. A dedicated staging hostname or approval to use Railway-managed TLS
-   hostnames.
-3. A dedicated staging-only signer secret or a supported KMS key reference.
+1. An authenticated AWS account and GitHub OIDC role with permission to create
+   the scoped staging resources.
+2. A dedicated Route 53 staging hostname and ACM certificate.
+3. A dedicated AWS KMS staging quote-signing key.
 4. Primary and fallback authenticated RPC endpoints for a persistent,
    non-mainnet staging chain.
 5. A private S3-compatible object-storage bucket and credential references.
@@ -60,6 +62,8 @@ chat or source control:
    allowlists.
 
 The provider-specific resume procedure is maintained with the staging
-infrastructure artifacts. After credentials are installed, deployment must
+infrastructure artifacts. The single checklist is
+`docs/STAGING_CREDENTIAL_CHECKLIST.md`; setup commands are in
+`docs/AWS_STAGING_SETUP.md`. After credentials are installed, deployment must
 resume with the access preflight; it must not skip directly to contract or
 lifecycle evidence.

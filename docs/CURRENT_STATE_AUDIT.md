@@ -1,5 +1,15 @@
 # EventClear Current-State Audit
 
+## External access update — 2026-07-28
+
+GitHub and the public Sites project are authenticated. The Sites project is
+public. No authenticated AWS/container platform, managed PostgreSQL, Redis,
+object storage, KMS, remote staging chain, staging DNS/TLS, centralized
+logging/error reporting, metrics/alerting or notification destination is
+available. AWS is selected but remains unprovisioned. External staging,
+contracts, lifecycle, persistence, monitoring, backup restore and rollback are
+therefore all incomplete.
+
 ## Release-blocker validation sprint
 
 - Baseline default-branch commit inspected:

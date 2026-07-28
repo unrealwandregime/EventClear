@@ -7,3 +7,10 @@ Report vulnerabilities privately to the repository security contact. Do not incl
 Required release checks: secret scan, dependency audit, locked builds, Python tests, TypeScript lint/typecheck/build, Foundry unit/fuzz/invariant tests, contract size, Slither, Docker builds, Playwright lifecycle, and a pinned Polygon fork when an RPC secret is available.
 
 Never store a user key. The development risk key in `.env.example` is public and local-only. Production signing must use an approved remote signer.
+
+Execution-enabled staging also rejects the repository development signer,
+Polygon chain ID 137, memory storage, absent PostgreSQL/Redis/RPC fallback,
+missing tester/admin/LP allowlists, and missing private artifact storage. The
+selected staging signer is a dedicated AWS KMS secp256k1 key. Solver artifacts
+are content-addressed, written immutably to a private encrypted/versioned
+bucket, and hash-verified on retrieval.

@@ -1,5 +1,30 @@
 # EventClear Build Status
 
+## External staging completion attempt — 2026-07-28
+
+Baseline: default-branch commit
+`595be4926a39667340311395b3a943d43bd8c05e`.
+
+| Release state | Status |
+| --- | --- |
+| Software functionality complete | Repository validation baseline passed; new branch validation pending |
+| External staging operational | No — AWS credentials and resources unavailable |
+| Remote lifecycle verified | No |
+| Monitoring operational | No |
+| Independent audit complete | No; audit-ready package only |
+| Legal approval complete | No |
+| Polygon-mainnet contracts deployed | No |
+| Public capital activated | No |
+| Public production-readonly site | Sites version 11 deployed from exact baseline; final branch refresh pending |
+
+Completed safely before the external boundary: credential audit, AWS provider
+decision and setup commands, protected staging workflow, non-137 deployment
+guards, full staging mock-suite deployment support, immutable encrypted solver
+artifact adapter, staging tester/admin allowlists, Redis fail-closed behavior,
+manifest/record hardening, audit package, and explicit unexecuted evidence
+templates. No external URL, address, transaction, alert or restore result was
+invented.
+
 ## Release-blocker validation sprint
 
 Baseline: default-branch commit
