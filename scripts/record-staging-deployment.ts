@@ -6,8 +6,10 @@ import { createPublicClient, getAddress, http, keccak256 } from "viem";
 
 const rpcUrl = process.env.STAGING_RPC_URL;
 if (!rpcUrl) throw new Error("STAGING_RPC_URL_REQUIRED");
-const chainId = Number(process.env.CHAIN_ID ?? "31337");
-if (chainId !== 31337) throw new Error("STAGING_CHAIN_ID_MUST_BE_31337");
+const chainId = Number(process.env.STAGING_CHAIN_ID ?? process.env.CHAIN_ID ?? "31337");
+if (!Number.isSafeInteger(chainId) || chainId <= 0 || chainId === 137) {
+  throw new Error("STAGING_CHAIN_ID_INVALID_OR_MAINNET");
+}
 
 const root = process.cwd();
 const broadcastPath = resolve(
@@ -28,6 +30,7 @@ const broadcast = JSON.parse(await readFile(broadcastPath, "utf8")) as {
 const names: Record<string, string> = {
   MockPUSD: "collateralToken",
   MockConditionalTokens: "conditionalTokens",
+  MockResolutionOracle: "resolutionOracle",
   MockCTFAdapter: "standardAdapter",
   RelationshipRegistry: "relationshipRegistry",
   RiskPolicy: "riskPolicy",
@@ -51,6 +54,8 @@ const client = createPublicClient({ transport: http(rpcUrl) });
 if ((await client.getChainId()) !== chainId) throw new Error("STAGING_RPC_CHAIN_MISMATCH");
 const contracts: Record<string, { address: `0x${string}`; kind: string; notes: string }> = {};
 const bytecodeHashes: Record<string, string> = {};
+const constructorArguments: Record<string, unknown[]> = {};
+const deploymentTransactions: Record<string, string> = {};
 for (const deployment of deployments) {
   const address = getAddress(deployment.contractAddress!);
   const code = await client.getCode({ address });
@@ -62,6 +67,9 @@ for (const deployment of deployments) {
     notes: `bytecode ${keccak256(code)}`,
   };
   bytecodeHashes[key] = keccak256(code);
+  constructorArguments[key] = deployment.arguments ?? [];
+  if (!deployment.hash) throw new Error(`STAGING_TRANSACTION_HASH_MISSING:${deployment.contractName}`);
+  deploymentTransactions[key] = deployment.hash;
 }
 
 const canonical = (value: unknown): string => {
@@ -88,29 +96,94 @@ await writeFile(
 );
 
 const commit = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+const requiredRecordValues = {
+  administrator: process.env.STAGING_ADMIN_ADDRESS,
+  riskSigner: process.env.RISK_SIGNER_ADDRESS,
+  relationshipDefinitionHash: process.env.STAGING_RELATIONSHIP_HASH,
+  ruleDocumentHash: process.env.STAGING_RULES_HASH,
+  depositCap: process.env.STAGING_DEPOSIT_CAP,
+  perBundleCap: process.env.STAGING_PER_BUNDLE_CAP,
+  utilizationCapBps: process.env.STAGING_UTILIZATION_CAP_BPS,
+  minimumReserveBps: process.env.STAGING_MINIMUM_RESERVE_BPS,
+  maximumDuration: process.env.STAGING_MAXIMUM_DURATION,
+  maximumAdvance: process.env.STAGING_MAXIMUM_ADVANCE,
+  perWalletExposure: process.env.STAGING_PER_WALLET_EXPOSURE,
+  perMarketExposure: process.env.STAGING_PER_MARKET_EXPOSURE,
+  perRelationshipExposure: process.env.STAGING_PER_RELATIONSHIP_EXPOSURE,
+  globalExposure: process.env.STAGING_GLOBAL_EXPOSURE,
+};
+const missingRecordValues = Object.entries(requiredRecordValues)
+  .filter(([, value]) => !value)
+  .map(([key]) => key);
+if (missingRecordValues.length > 0) {
+  throw new Error(`STAGING_DEPLOYMENT_METADATA_MISSING:${missingRecordValues.join(",")}`);
+}
+const riskLimits = Object.fromEntries(
+  Object.entries(requiredRecordValues).filter(([key]) =>
+    [
+      "depositCap",
+      "perBundleCap",
+      "utilizationCapBps",
+      "minimumReserveBps",
+      "maximumDuration",
+      "maximumAdvance",
+      "perWalletExposure",
+      "perMarketExposure",
+      "perRelationshipExposure",
+      "globalExposure",
+    ].includes(key),
+  ),
+);
+const deploymentTimestamp = new Date().toISOString();
+const evidence = {
+  network: process.env.STAGING_NETWORK_NAME ?? "controlled-staging",
+  chainId,
+  gitCommit: commit,
+  compiler: "Solidity 0.8.26",
+  deploymentTimestamp,
+  contracts,
+  deploymentTransactions,
+  constructorArguments,
+  bytecodeHashes,
+  manifestHash,
+  administrator: requiredRecordValues.administrator,
+  treasury: contracts.treasury.address,
+  riskSigner: requiredRecordValues.riskSigner,
+  riskLimits,
+  relationshipDefinitionHash: requiredRecordValues.relationshipDefinitionHash,
+  ruleDocumentHash: requiredRecordValues.ruleDocumentHash,
+};
+const evidenceHash = `0x${createHash("sha256").update(canonical(evidence)).digest("hex")}`;
 const lines = [
   "# Staging deployment record",
   "",
-  `- Deployment timestamp: ${new Date().toISOString()}`,
-  `- Network: controlled remote Anvil`,
+  `- Deployment timestamp: ${deploymentTimestamp}`,
+  `- Network: ${evidence.network}`,
   `- Chain ID: ${chainId}`,
   `- Git commit: \`${commit}\``,
   `- Compiler: Solidity 0.8.26`,
   `- Manifest hash: \`${manifestHash}\``,
-  `- Administrator: \`${process.env.STAGING_ADMIN_ADDRESS ?? "not-recorded"}\``,
-  `- Risk signer: \`${process.env.RISK_SIGNER_ADDRESS ?? "not-recorded"}\``,
+  `- Evidence hash: \`${evidenceHash}\``,
+  `- Administrator: \`${requiredRecordValues.administrator}\``,
+  `- Treasury: \`${contracts.treasury.address}\``,
+  `- Risk signer: \`${requiredRecordValues.riskSigner}\``,
+  `- Relationship definition hash: \`${requiredRecordValues.relationshipDefinitionHash}\``,
+  `- Rule-document hash: \`${requiredRecordValues.ruleDocumentHash}\``,
+  "",
+  "## Risk limits",
+  "",
+  ...Object.entries(riskLimits).map(([name, value]) => `- ${name}: \`${value}\``),
   "",
   "## Contracts",
   "",
   ...Object.entries(contracts).map(
-    ([name, entry]) => `- ${name}: \`${entry.address}\` (${bytecodeHashes[name]})`,
+    ([name, entry]) =>
+      `- ${name}: \`${entry.address}\`; bytecode \`${bytecodeHashes[name]}\`; constructor \`${JSON.stringify(constructorArguments[name])}\``,
   ),
   "",
   "## Deployment transactions",
   "",
-  ...deployments.map(
-    (item) => `- ${item.contractName}: \`${item.hash ?? "transaction-hash-unavailable"}\``,
-  ),
+  ...Object.entries(deploymentTransactions).map(([name, hash]) => `- ${name}: \`${hash}\``),
   "",
   "No private key or secret material is recorded here.",
   "",
