@@ -9,6 +9,17 @@ export const publicJson = (body: unknown, status = 200) =>
     },
   });
 
+export const productionReadonly = () =>
+  publicJson(
+    {
+      detail: {
+        code: "PRODUCTION_READONLY",
+        message: "Execution and capital writes are disabled on the public deployment.",
+      },
+    },
+    403,
+  );
+
 export function decimalToAtomic(value: unknown, decimals = 6): string {
   const raw = String(value ?? "0").trim();
   const match = raw.match(/^(-?)(\d+)(?:\.(\d+))?$/);
