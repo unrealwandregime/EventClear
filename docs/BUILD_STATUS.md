@@ -15,7 +15,7 @@ Baseline: default-branch commit
 | Legal approval complete | No |
 | Polygon-mainnet contracts deployed | No |
 | Public capital activated | No |
-| Public production-readonly site | Sites version 11 deployed from exact baseline; final branch refresh pending |
+| Public production-readonly site | Sites version 13 deployed from default-branch commit `876743d7177dfcf2f226c9c12b189bfcf50822ec`; anonymous verification passed |
 
 Completed safely before the external boundary: credential audit, AWS provider
 decision and setup commands, protected staging workflow, non-137 deployment
