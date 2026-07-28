@@ -23,6 +23,9 @@
 | Decimal error | Six-decimal atomic integers and fuzz/property tests | External token metadata changes |
 | Double settlement/claim | State transition before external calls, claim burn, nonces | Undiscovered contract bug |
 | Malicious token rescue | No active-collateral rescue path in MVP | Accidental unrelated tokens remain stuck |
+| Staging access bypass | SIWE-bound tester allowlist, separate admin token/address allowlist, EOA-only execution, provider access control | Compromised allowlisted identity |
+| Solver artifact mutation | Canonical SHA-256, create-only object key, private encrypted/versioned S3, retrieval hash check | AWS/IAM compromise or loss of all versions |
+| Public/staging confusion | Separate deployment, mode and secrets; public catch-all write rejection; no staging metrics or addresses in Sites | DNS or deployment-pipeline compromise |
 
 Settlement remains callable when new originations are paused. A shortfall allocates all proceeds to principal, zero to residual, and never draws unrelated pool assets.
 

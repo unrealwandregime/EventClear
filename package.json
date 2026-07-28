@@ -20,6 +20,7 @@
     "security:licenses": "node scripts/check-licenses.mjs",
     "deployment:sync-local": "tsx scripts/sync-local-deployment.ts",
     "deployment:record-staging": "tsx scripts/record-staging-deployment.ts",
+    "staging:preflight": "node scripts/staging-external-preflight.mjs",
     "db:generate": "drizzle-kit generate",
     "indexer:run": "pnpm --dir apps/indexer run",
     "indexer:backfill": "pnpm --dir apps/indexer backfill",

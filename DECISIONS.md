@@ -78,3 +78,28 @@ Software checks are reported independently from remote operations. External
 staging remains incomplete until remote health URLs, contract transactions,
 lifecycle evidence and active monitoring can be verified. Polygon mainnet
 deployment and public capital activation remain prohibited.
+
+## 2026-07-28 — External staging provider
+
+- **Selected: AWS.** No container/cloud provider was authenticated. AWS is the
+  first priority option that satisfies the complete requirement set with
+  ECS/Fargate, RDS PostgreSQL, ElastiCache Redis, S3 encryption and versioning,
+  KMS secp256k1 signing, Secrets Manager, CloudWatch, ACM and Route 53.
+- **Railway rejected for this release boundary.** Its managed application
+  workflow is simpler, but its native object-storage documentation does not
+  currently guarantee the required server-side encryption and versioning
+  controls, and its database services leave more operational ownership with
+  the project.
+- **Render and Fly.io not selected.** Neither was already connected, so adding
+  another provider would not remove the credential boundary or simplify the
+  AWS-native KMS/S3/monitoring requirements.
+- **Limitations.** AWS requires an account, OIDC role, network, DNS and
+  notification destination that are not available in this environment.
+  Therefore the architecture is selected and documented, but no AWS resource
+  is claimed as provisioned.
+- **Recurring resource categories.** Four Fargate application services, one
+  persistent staging-chain service plus encrypted state, an application load
+  balancer, private networking/NAT, RDS PostgreSQL, ElastiCache Redis, S3,
+  KMS, Secrets Manager, CloudWatch logs/metrics/alarms, Route 53/ACM, backups
+  and data transfer. Prices are intentionally not estimated without an
+  approved region and sizing exercise.

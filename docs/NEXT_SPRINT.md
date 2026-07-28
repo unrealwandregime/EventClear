@@ -1,5 +1,17 @@
 # EventClear staging-v1 sprint
 
+## Credential-bound next action
+
+- [ ] Create the protected GitHub `staging` environment and supply
+  `docs/STAGING_CREDENTIAL_CHECKLIST.md`.
+- [ ] Run
+  `gh workflow run staging-deploy.yml --repo unrealwandregime/EventClear -f action=preflight -f release_ref=master`.
+- [ ] Provision AWS resources, then separately approve services and contract
+  actions.
+
+Until those items exist, remote lifecycle, monitoring drills, restore and
+rollback evidence must remain marked not run.
+
 ## Release-blocker validation sprint
 
 - [x] Correct `allowedCollaterals(address)` and add compiled ABI verification.

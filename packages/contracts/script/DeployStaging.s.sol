@@ -11,11 +11,13 @@ import {RiskPolicy} from "../src/RiskPolicy.sol";
 import {MockPUSD} from "../src/mocks/MockPUSD.sol";
 import {MockConditionalTokens} from "../src/mocks/MockConditionalTokens.sol";
 import {MockCTFAdapter} from "../src/mocks/MockCTFAdapter.sol";
+import {MockResolutionOracle} from "../src/mocks/MockResolutionOracle.sol";
 
-/// @notice Controlled test-asset deployment for a remote chain-id 31337 staging network.
+/// @notice Controlled test-asset deployment for an explicit non-137 staging network.
 contract DeployStaging is Script {
     function run() external {
         uint256 deployerKey = vm.envUint("STAGING_DEPLOYER_PRIVATE_KEY");
+        uint256 expectedChainId = vm.envUint("STAGING_CHAIN_ID");
         address admin = vm.envAddress("STAGING_ADMIN_ADDRESS");
         address riskSigner = vm.envAddress("RISK_SIGNER_ADDRESS");
         address lp = vm.envAddress("STAGING_LP_ADDRESS");
@@ -24,21 +26,36 @@ contract DeployStaging is Script {
         bytes32 rulesHash = vm.envBytes32("STAGING_RULES_HASH");
         uint256 earliest = vm.envUint("STAGING_EARLIEST_RESOLUTION");
         uint256 latest = vm.envUint("STAGING_LATEST_RESOLUTION");
+        uint256 depositCap = vm.envUint("STAGING_DEPOSIT_CAP");
+        uint256 perBundleCap = vm.envUint("STAGING_PER_BUNDLE_CAP");
+        uint256 utilizationCapBps = vm.envUint("STAGING_UTILIZATION_CAP_BPS");
+        uint256 minimumReserveBps = vm.envUint("STAGING_MINIMUM_RESERVE_BPS");
+        uint256 maximumDuration = vm.envUint("STAGING_MAXIMUM_DURATION");
+        uint256 maximumAdvance = vm.envUint("STAGING_MAXIMUM_ADVANCE");
+        uint256 perWalletExposure = vm.envUint("STAGING_PER_WALLET_EXPOSURE");
+        uint256 perMarketExposure = vm.envUint("STAGING_PER_MARKET_EXPOSURE");
+        uint256 perRelationshipExposure = vm.envUint("STAGING_PER_RELATIONSHIP_EXPOSURE");
+        uint256 globalExposure = vm.envUint("STAGING_GLOBAL_EXPOSURE");
         address deployer = vm.addr(deployerKey);
+        require(block.chainid == expectedChainId, "unexpected staging chain");
+        require(block.chainid != 137, "polygon mainnet prohibited");
         require(admin != address(0) && admin != deployer, "separate staging admin required");
         require(riskSigner != address(0) && lp != address(0) && tester != address(0), "staging address missing");
         require(relationshipHash != bytes32(0) && rulesHash != bytes32(0), "staging hash missing");
         require(earliest > block.timestamp && latest >= earliest, "staging resolution window invalid");
+        require(utilizationCapBps <= 10_000 && minimumReserveBps <= utilizationCapBps, "staging pool limits invalid");
+        require(maximumDuration <= type(uint64).max, "staging duration invalid");
 
         vm.startBroadcast(deployerKey);
         MockPUSD collateral = new MockPUSD();
         MockConditionalTokens conditionalTokens = new MockConditionalTokens();
+        new MockResolutionOracle(conditionalTokens);
         MockCTFAdapter adapter = new MockCTFAdapter(conditionalTokens, collateral);
         RelationshipRegistry registry = new RelationshipRegistry(deployer);
         EventClearClaims claims = new EventClearClaims(deployer);
         EventClearTreasury treasury = new EventClearTreasury(deployer);
         EventClearFundingPool pool =
-            new EventClearFundingPool(collateral, deployer, address(treasury), 100_000e6, 10_000e6);
+            new EventClearFundingPool(collateral, deployer, address(treasury), depositCap, perBundleCap);
         RiskPolicy risk = new RiskPolicy(deployer, riskSigner);
         EventClearVault vault = new EventClearVault(
             collateral, conditionalTokens, registry, claims, pool, IRedemptionAdapter(address(adapter)), risk, deployer
@@ -51,8 +68,16 @@ contract DeployStaging is Script {
         risk.grantRole(risk.VAULT_ROLE(), address(vault));
         risk.setAdapterAllowed(address(adapter), true);
         risk.setCollateralAllowed(address(collateral), true);
-        risk.setLimits(9_000, 90 days, 10_000e6, 20_000e6, 20_000e6, 20_000e6, 50_000e6);
-        pool.setRiskLimits(7_500, 2_000);
+        risk.setLimits(
+            9_000,
+            uint64(maximumDuration),
+            maximumAdvance,
+            perWalletExposure,
+            perMarketExposure,
+            perRelationshipExposure,
+            globalExposure
+        );
+        pool.setRiskLimits(uint16(utilizationCapBps), uint16(minimumReserveBps));
         registry.register(relationshipHash, 1, uint64(block.timestamp), 0, earliest, latest, rulesHash);
         collateral.mint(lp, 25_000e6);
         conditionalTokens.createPosition(keccak256("staging-lower"), 1, 2);

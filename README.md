@@ -138,7 +138,13 @@ A bundle below principal becomes `SHORTFALL`; all proceeds go to principal and t
 
 ## Deployment
 
-The web can deploy to Vercel or Sites; API, solver, and indexer run as separate containers on Railway, Fly.io, ECS, or Kubernetes with managed PostgreSQL and Redis. Use separate secrets and databases for `development`, `test`, `staging`, `production-readonly`, and `production-mainnet`.
+The public production-readonly web is deployed through Sites. The selected
+external staging architecture is AWS ECS/Fargate with RDS PostgreSQL,
+ElastiCache Redis, private versioned S3 artifact storage, KMS signing,
+Secrets Manager and CloudWatch. See `docs/AWS_STAGING_SETUP.md`. No AWS staging
+resource is currently provisioned. Use separate secrets and databases for
+`development`, `test`, `staging`, `production-readonly`, and
+`production-mainnet`.
 
 Production API processes must set `EVENTCLEAR_STORE=postgres`. Authentication
 nonces and session tokens are stored only as SHA-256 digests, quote nonces are

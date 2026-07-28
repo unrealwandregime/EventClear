@@ -82,6 +82,13 @@ class Settings:
     market_freshness_seconds: int = int(os.getenv("MARKET_FRESHNESS_SECONDS", "30"))
     polygon_rpc_urls_raw: str = os.getenv("POLYGON_RPC_URLS", "")
     lp_allowlist_raw: str = os.getenv("LP_ALLOWLIST", "")
+    tester_allowlist_raw: str = os.getenv("TESTER_ALLOWLIST", "")
+    admin_allowlist_raw: str = os.getenv("ADMIN_ALLOWLIST", "")
+    object_storage_endpoint: str = os.getenv("OBJECT_STORAGE_ENDPOINT", "")
+    object_storage_bucket: str = os.getenv("OBJECT_STORAGE_BUCKET", "")
+    object_storage_region: str = os.getenv("OBJECT_STORAGE_REGION", "")
+    object_storage_access_key: str = os.getenv("OBJECT_STORAGE_ACCESS_KEY", "")
+    object_storage_secret_key: str = os.getenv("OBJECT_STORAGE_SECRET_KEY", "")
 
     @property
     def polygon_rpc_urls(self) -> tuple[str, ...]:
@@ -96,6 +103,22 @@ class Settings:
         return frozenset(
             value.strip().lower()
             for value in self.lp_allowlist_raw.split(",")
+            if value.strip()
+        )
+
+    @property
+    def tester_allowlist(self) -> frozenset[str]:
+        return frozenset(
+            value.strip().lower()
+            for value in self.tester_allowlist_raw.split(",")
+            if value.strip()
+        )
+
+    @property
+    def admin_allowlist(self) -> frozenset[str]:
+        return frozenset(
+            value.strip().lower()
+            for value in self.admin_allowlist_raw.split(",")
             if value.strip()
         )
 
@@ -209,6 +232,8 @@ class Settings:
                 raise RuntimeError(f"MAINNET_SAFETY_GATE_FAILED:{','.join(missing)}")
         if self.normalized_mode == "staging":
             missing = []
+            if self.chain_id == 137:
+                missing.append("STAGING_CHAIN_MUST_NOT_BE_POLYGON_MAINNET")
             if self.store_backend != "postgres":
                 missing.append("EVENTCLEAR_STORE=postgres")
             if not self.database_url:
@@ -229,8 +254,21 @@ class Settings:
                 missing.append("DEDICATED_STAGING_SIGNER")
             if not self.lp_allowlist:
                 missing.append("LP_ALLOWLIST")
+            if not self.tester_allowlist:
+                missing.append("TESTER_ALLOWLIST")
+            if not self.admin_allowlist:
+                missing.append("ADMIN_ALLOWLIST")
             if len(set(self.polygon_rpc_urls)) < 2:
                 missing.append("RPC_PRIMARY_AND_FALLBACK")
+            if not self.object_storage_bucket:
+                missing.append("OBJECT_STORAGE_BUCKET")
+            if not self.object_storage_region:
+                missing.append("OBJECT_STORAGE_REGION")
+            if self.signer_backend == "kms":
+                if not self.signer_kms_key_id:
+                    missing.append("RISK_SIGNER_KMS_KEY_ID")
+                if not self.signer_kms_region:
+                    missing.append("RISK_SIGNER_KMS_REGION")
             if missing:
                 raise RuntimeError(f"STAGING_SAFETY_GATE_FAILED:{','.join(missing)}")
         if self.normalized_mode == "production-readonly" and self.chain_id != 137:

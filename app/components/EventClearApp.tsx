@@ -446,7 +446,10 @@ export function EventClearApp() {
         <div className="content">
           <div className="release-strip">
             <span><i /> Public read-only alpha</span>
-            <b>Standard binary markets only · public capital execution disabled</b>
+            <b>
+              Standard binary markets only · public capital execution disabled
+              · No public capital activated
+            </b>
           </div>
           {wallet && config && (
             <section className="wallet-strip" aria-label="Connected wallet capability">

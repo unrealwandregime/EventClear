@@ -1,0 +1,229 @@
+name: Controlled external staging
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Approved staging operation
+        required: true
+        type: choice
+        options:
+          - preflight
+          - deploy-services
+          - deploy-contracts
+          - rollback-services
+      release_ref:
+        description: Default-branch commit or approved release ref
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: eventclear-external-staging
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      POLYGON_RPC_URL: ${{ secrets.POLYGON_RPC_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref }}
+          fetch-depth: 0
+      - name: Require default branch or approved release ref
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          RELEASE_REF: ${{ inputs.release_ref }}
+        run: |
+          git fetch origin "$DEFAULT_BRANCH"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "$RELEASE_REF")"
+          if ! git merge-base --is-ancestor HEAD "origin/$DEFAULT_BRANCH" &&
+             [[ "$RELEASE_REF" != refs/tags/* ]]; then
+            echo "Release ref is neither on the default branch nor an approved tag."
+            exit 1
+          fi
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: foundry-rs/foundry-toolchain@v1
+      - run: cp .env.example .env
+      - run: make install
+      - run: python -m pip install ruff==0.15.21 slither-analyzer
+      - run: make test
+      - run: make test-api-contract-integration
+      - run: docker compose up --detach anvil
+      - run: make demo-lifecycle
+      - run: pnpm contracts:check-api-abi
+      - run: pnpm test:e2e
+      - run: pnpm indexer:test
+      - run: pnpm security:dependencies
+      - run: pnpm security:licenses
+      - run: make test-fork
+      - run: docker compose build
+      - working-directory: packages/contracts
+        run: slither . --config-file ../../slither.config.json --json ../../slither-report.json
+      - if: always()
+        run: docker compose down --volumes
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: external-staging-slither
+          path: slither-report.json
+
+  operate:
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+      STAGING_STACK_NAME: ${{ secrets.STAGING_STACK_NAME }}
+      STAGING_CHAIN_ID: ${{ secrets.STAGING_CHAIN_ID }}
+      STAGING_RPC_PRIMARY: ${{ secrets.STAGING_RPC_PRIMARY }}
+      STAGING_RPC_FALLBACK: ${{ secrets.STAGING_RPC_FALLBACK }}
+      STAGING_ADMIN_ADDRESS: ${{ secrets.STAGING_ADMIN_ADDRESS }}
+      STAGING_LP_ADDRESS: ${{ secrets.STAGING_LP_ADDRESS }}
+      STAGING_TEST_EOA: ${{ secrets.STAGING_TEST_EOA }}
+      RISK_SIGNER_KMS_KEY_ID: ${{ secrets.RISK_SIGNER_KMS_KEY_ID }}
+      RISK_SIGNER_ADDRESS: ${{ secrets.RISK_SIGNER_ADDRESS }}
+      STAGING_ALERT_TOPIC_ARN: ${{ secrets.STAGING_ALERT_TOPIC_ARN }}
+      ENABLE_MAINNET_EXECUTION: "false"
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: "${{ inputs.release_ref }}" }
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+      - name: Credential and chain preflight
+        run: |
+          aws sts get-caller-identity >/dev/null
+          if [ "${{ inputs.action }}" != "deploy-services" ]; then
+            export STAGING_PREFLIGHT_PHASE=before-contracts
+          fi
+          node scripts/staging-external-preflight.mjs
+          test "$STAGING_CHAIN_ID" != "137"
+      - name: Build and push immutable images
+        if: inputs.action == 'deploy-services'
+        run: |
+          IMAGE_TAG="$(git rev-parse HEAD)"
+          aws ecr get-login-password |
+            docker login --username AWS --password-stdin \
+            "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
+          for service in web api solver indexer migration; do
+            dockerfile="infrastructure/docker/$service.Dockerfile"
+            if [ "$service" = "solver" ]; then dockerfile="infrastructure/docker/python.Dockerfile"; fi
+            image="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/eventclear-staging-$service:$IMAGE_TAG"
+            docker build -f "$dockerfile" -t "$image" .
+            docker push "$image"
+          done
+      - name: Deploy service task definitions
+        if: inputs.action == 'deploy-services'
+        env:
+          STAGING_ECS_NETWORK_CONFIGURATION: ${{ secrets.STAGING_ECS_NETWORK_CONFIGURATION }}
+          STAGING_API_HEALTH_URL: ${{ secrets.STAGING_API_HEALTH_URL }}
+          STAGING_WEB_URL: ${{ secrets.STAGING_WEB_URL }}
+        run: |
+          IMAGE_TAG="$(git rev-parse HEAD)"
+          declare -A previous
+          for service in web api solver indexer; do
+            previous[$service]="$(aws ecs describe-services \
+              --cluster eventclear-staging --services "eventclear-staging-$service" \
+              --query 'services[0].taskDefinition' --output text)"
+          done
+          rollback() {
+            for service in web api solver indexer; do
+              aws ecs update-service --cluster eventclear-staging \
+                --service "eventclear-staging-$service" \
+                --task-definition "${previous[$service]}" >/dev/null || true
+            done
+          }
+          trap rollback ERR
+          for service in migration web api solver indexer; do
+            family="eventclear-staging-$service"
+            image="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$family:$IMAGE_TAG"
+            aws ecs describe-task-definition --task-definition "$family" \
+              --query taskDefinition > task.json
+            jq --arg IMAGE "$image" '
+              del(.taskDefinitionArn,.revision,.status,.requiresAttributes,
+                  .compatibilities,.registeredAt,.registeredBy)
+              | .containerDefinitions[0].image=$IMAGE
+            ' task.json > next-task.json
+            task_arn="$(aws ecs register-task-definition \
+              --cli-input-json file://next-task.json \
+              --query taskDefinition.taskDefinitionArn --output text)"
+            if [ "$service" = "migration" ]; then
+              migration_task="$(aws ecs run-task --cluster eventclear-staging \
+                --launch-type FARGATE --task-definition "$task_arn" \
+                --network-configuration "$STAGING_ECS_NETWORK_CONFIGURATION" \
+                --query 'tasks[0].taskArn' --output text)"
+              aws ecs wait tasks-stopped --cluster eventclear-staging \
+                --tasks "$migration_task"
+              test "$(aws ecs describe-tasks --cluster eventclear-staging \
+                --tasks "$migration_task" \
+                --query 'tasks[0].containers[0].exitCode' --output text)" = "0"
+              continue
+            fi
+            aws ecs update-service --cluster eventclear-staging \
+              --service "$family" --task-definition "$task_arn" >/dev/null
+          done
+          aws ecs wait services-stable --cluster eventclear-staging \
+            --services eventclear-staging-web eventclear-staging-api \
+              eventclear-staging-solver eventclear-staging-indexer
+          curl --fail --silent --show-error "$STAGING_API_HEALTH_URL/api/v1/health"
+          curl --fail --silent --show-error "$STAGING_API_HEALTH_URL/api/v1/readiness"
+          curl --fail --silent --show-error "$STAGING_WEB_URL"
+          trap - ERR
+      - name: Deploy staging contracts
+        if: inputs.action == 'deploy-contracts'
+        env:
+          STAGING_RPC_URL: ${{ secrets.STAGING_RPC_PRIMARY }}
+          STAGING_DEPLOYER_PRIVATE_KEY: ${{ secrets.STAGING_DEPLOYER_PRIVATE_KEY }}
+          STAGING_RELATIONSHIP_HASH: ${{ secrets.STAGING_RELATIONSHIP_HASH }}
+          STAGING_RULES_HASH: ${{ secrets.STAGING_RULES_HASH }}
+          STAGING_EARLIEST_RESOLUTION: ${{ secrets.STAGING_EARLIEST_RESOLUTION }}
+          STAGING_LATEST_RESOLUTION: ${{ secrets.STAGING_LATEST_RESOLUTION }}
+          STAGING_DEPOSIT_CAP: "1000000000"
+          STAGING_PER_BUNDLE_CAP: "100000000"
+          STAGING_UTILIZATION_CAP_BPS: "5000"
+          STAGING_MINIMUM_RESERVE_BPS: "2000"
+          STAGING_MAXIMUM_DURATION: "2592000"
+          STAGING_MAXIMUM_ADVANCE: "100000000"
+          STAGING_PER_WALLET_EXPOSURE: "200000000"
+          STAGING_PER_MARKET_EXPOSURE: "300000000"
+          STAGING_PER_RELATIONSHIP_EXPOSURE: "300000000"
+          STAGING_GLOBAL_EXPOSURE: "500000000"
+        run: |
+          test "$STAGING_CHAIN_ID" != "137"
+          cd packages/contracts
+          forge script script/DeployStaging.s.sol:DeployStaging \
+            --rpc-url "$STAGING_RPC_URL" --broadcast -vvv
+          cd ../..
+          pnpm deployment:record-staging
+          POLYGON_RPC_URLS="$STAGING_RPC_PRIMARY,$STAGING_RPC_FALLBACK" \
+            EVENTCLEAR_MODE=staging pnpm contracts:verify-manifest
+      - name: Roll back services
+        if: inputs.action == 'rollback-services'
+        env:
+          ROLLBACK_TASK_REVISIONS: ${{ secrets.ROLLBACK_TASK_REVISIONS }}
+        run: |
+          test -n "$ROLLBACK_TASK_REVISIONS"
+          for pair in $ROLLBACK_TASK_REVISIONS; do
+            service="${pair%%=*}"
+            revision="${pair#*=}"
+            aws ecs update-service --cluster eventclear-staging \
+              --service "eventclear-staging-$service" \
+              --task-definition "eventclear-staging-$service:$revision" >/dev/null
+          done
+          aws ecs wait services-stable --cluster eventclear-staging \
+            --services eventclear-staging-web eventclear-staging-api \
+              eventclear-staging-solver eventclear-staging-indexer

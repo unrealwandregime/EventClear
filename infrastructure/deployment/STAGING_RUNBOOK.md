@@ -1,6 +1,6 @@
 # Controlled staging runbook
 
-Staging is an execution-capable local or Polygon-fork environment. It is
+Staging is an execution-capable persistent non-137 chain environment. It is
 separate from the public `production-readonly` website and must never hold
 public capital.
 
@@ -44,6 +44,17 @@ forge script script/DeployStaging.s.sol:DeployStaging \
 cd ../..
 pnpm deployment:record-staging
 ```
+
+AWS is the selected external provider. Follow
+`docs/STAGING_CREDENTIAL_CHECKLIST.md` and `docs/AWS_STAGING_SETUP.md`, then run
+the protected GitHub workflow:
+
+```bash
+gh workflow run staging-deploy.yml --repo unrealwandregime/EventClear \
+  -f action=preflight -f release_ref=master
+```
+
+Service deployment and contract deployment are separate approved actions.
 
 The deployment script has no default private key. The recorder rejects missing
 bytecode and writes `config/contracts/staging.json` plus the deployment record.

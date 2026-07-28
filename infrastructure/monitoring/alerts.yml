@@ -35,3 +35,73 @@ groups:
         expr: increase(eventclear_settlement_failures_total[10m]) > 0
         labels: { severity: critical }
         annotations: { summary: "A staging settlement failed" }
+      - alert: EventClearDatabaseUnavailable
+        expr: eventclear_database_health == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations: { summary: "EventClear staging PostgreSQL unavailable" }
+      - alert: EventClearRedisUnavailable
+        expr: eventclear_redis_health == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations: { summary: "EventClear staging Redis unavailable" }
+      - alert: EventClearPrimaryRpcUnavailable
+        expr: eventclear_rpc_primary_health == 0
+        for: 1m
+        labels: { severity: warning }
+        annotations: { summary: "EventClear primary staging RPC unavailable" }
+      - alert: EventClearBothRpcsUnavailable
+        expr: eventclear_rpc_primary_health == 0 and eventclear_rpc_fallback_health == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations: { summary: "Both EventClear staging RPC endpoints unavailable" }
+      - alert: EventClearIndexerReconciliationMismatch
+        expr: eventclear_indexer_reconciliation_ok == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations: { summary: "Indexer state does not reconcile with contracts" }
+      - alert: EventClearDeadLetters
+        expr: eventclear_indexer_dead_letter_count > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations: { summary: "EventClear indexer has dead letters" }
+      - alert: EventClearQuoteSignerFailure
+        expr: eventclear_signer_health == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations: { summary: "EventClear staging quote signer failed" }
+      - alert: EventClearPoolReserveViolation
+        expr: eventclear_pool_liquid_assets < eventclear_pool_minimum_reserve
+        for: 1m
+        labels: { severity: critical }
+        annotations: { summary: "EventClear pool is below minimum reserve" }
+      - alert: EventClearShortfall
+        expr: increase(eventclear_shortfalls_total[5m]) > 0
+        labels: { severity: critical }
+        annotations: { summary: "EventClear staging bundle entered shortfall" }
+      - alert: EventClearUnexpectedContractBalance
+        expr: eventclear_contract_balance_mismatch != 0
+        for: 1m
+        labels: { severity: critical }
+        annotations: { summary: "EventClear contract balance mismatch" }
+      - alert: EventClearRelationshipSuspended
+        expr: increase(eventclear_relationship_suspensions_total[5m]) > 0
+        labels: { severity: warning }
+        annotations: { summary: "EventClear relationship suspended" }
+      - alert: EventClearRiskPolicyChanged
+        expr: increase(eventclear_risk_policy_changes_total[5m]) > 0
+        labels: { severity: warning }
+        annotations: { summary: "EventClear risk policy changed" }
+      - alert: EventClearContractPaused
+        expr: eventclear_contract_paused == 1
+        labels: { severity: critical }
+        annotations: { summary: "EventClear contract paused" }
+      - alert: EventClearAdministratorRoleChanged
+        expr: increase(eventclear_administrator_role_changes_total[5m]) > 0
+        labels: { severity: critical }
+        annotations: { summary: "EventClear administrator role changed" }
+      - alert: EventClearBytecodeMismatch
+        expr: eventclear_contract_bytecode_match == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations: { summary: "EventClear staging bytecode mismatch" }

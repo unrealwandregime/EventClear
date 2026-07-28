@@ -6,6 +6,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import {
   createPublicClient,
+  defineChain,
   erc20Abi,
   getAddress,
   http,
@@ -94,7 +95,14 @@ for (const [name, entry] of Object.entries(manifest.contracts)) {
 }
 
 const expectedChainId =
-  manifest.environment === "local" || manifest.environment === "staging" ? 31337 : 137;
+  manifest.environment === "staging"
+    ? Number(process.env.STAGING_CHAIN_ID ?? process.env.CHAIN_ID ?? "31337")
+    : manifest.environment === "local"
+      ? 31337
+      : 137;
+if (manifest.environment === "staging" && expectedChainId === 137) {
+  fail("Polygon mainnet is prohibited for staging");
+}
 if (manifest.chainId !== expectedChainId) fail(`Unexpected chain ID ${manifest.chainId}`);
 if (manifest.environment === "local" && Object.keys(manifest.contracts).length === 0) {
   console.log(`verified local deployment-template manifest ${manifest.manifestHash}`);
@@ -103,6 +111,7 @@ if (manifest.environment === "local" && Object.keys(manifest.contracts).length =
 
 const required = [
   "conditionalTokens",
+  "resolutionOracle",
   "pUSD",
   "usdce",
   "ctfCollateralAdapter",
@@ -164,7 +173,16 @@ const nameAbi = parseAbi(["function name() view returns (string)"]);
 const entries = Object.entries(manifest.contracts);
 
 for (const rpcUrl of rpcUrls) {
-  const client = createPublicClient({ chain: polygon, transport: http(rpcUrl, { timeout: 20_000 }) });
+  const chain =
+    manifest.environment === "staging"
+      ? defineChain({
+          id: manifest.chainId,
+          name: "EventClear staging",
+          nativeCurrency: { name: "Staging ETH", symbol: "ETH", decimals: 18 },
+          rpcUrls: { default: { http: [rpcUrl] } },
+        })
+      : polygon;
+  const client = createPublicClient({ chain, transport: http(rpcUrl, { timeout: 20_000 }) });
   if (await client.getChainId() !== manifest.chainId) fail(`RPC chain mismatch: ${rpcUrl}`);
 
   const bytecodes = await Promise.all(

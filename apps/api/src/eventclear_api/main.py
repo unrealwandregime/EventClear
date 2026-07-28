@@ -38,6 +38,7 @@ from .calldata import (
     settle_bundle,
     withdraw,
 )
+from .artifact_store import create_artifact_store
 from .polymarket import PolymarketReadGateway
 from .preflight import (
     QuotePreflightError,
@@ -59,6 +60,7 @@ from .transaction_models import (
 settings = Settings()
 settings.validate()
 store = create_store(settings)
+artifact_store = create_artifact_store(settings)
 redis_client = (
     redis_from_url(settings.redis_url, decode_responses=True)
     if settings.redis_url
@@ -100,7 +102,11 @@ rate_windows: dict[str, deque[float]] = defaultdict(deque)
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     settings.validate()
-    if settings.normalized_mode in {"production-readonly", "production-controlled"}:
+    if settings.normalized_mode in {
+        "staging",
+        "production-readonly",
+        "production-controlled",
+    }:
         if redis_client is None or not await redis_client.ping():
             raise RuntimeError("REDIS_RATE_LIMITER_UNAVAILABLE")
     yield
@@ -136,6 +142,7 @@ async def controls(request: Request, call_next):
                 )
         except RedisError:
             if settings.normalized_mode in {
+                "staging",
                 "production-readonly",
                 "production-controlled",
             }:
@@ -169,12 +176,20 @@ async def controls(request: Request, call_next):
     return response
 
 
-def admin(x_admin_token: str | None = Header(default=None)) -> str:
+def admin(
+    x_admin_token: str | None = Header(default=None),
+    x_admin_address: str | None = Header(default=None),
+) -> str:
     if x_admin_token is None or not hmac.compare_digest(
         x_admin_token, settings.admin_api_token
     ):
         raise HTTPException(status_code=403, detail={"code": "ADMIN_REQUIRED"})
-    return "admin"
+    if settings.normalized_mode == "staging" and (
+        x_admin_address is None
+        or x_admin_address.lower() not in settings.admin_allowlist
+    ):
+        raise HTTPException(status_code=403, detail={"code": "ADMIN_NOT_ALLOWLISTED"})
+    return x_admin_address or "admin"
 
 
 def authenticated_session(authorization: str | None = Header(default=None)) -> dict:
@@ -183,6 +198,11 @@ def authenticated_session(authorization: str | None = Header(default=None)) -> d
     session = store.get_session(authorization.removeprefix("Bearer "), time.time())
     if session is None:
         raise HTTPException(401, detail={"code": "INVALID_SESSION"})
+    if (
+        settings.normalized_mode == "staging"
+        and session["address"].lower() not in settings.tester_allowlist
+    ):
+        raise HTTPException(403, detail={"code": "TESTER_NOT_ALLOWLISTED"})
     return session
 
 
@@ -431,6 +451,11 @@ def siwe_verify(payload: dict):
         raise HTTPException(401, detail={"code": "INVALID_SIWE_SIGNATURE"}) from exc
     if recovered.lower() != claimed_address.lower():
         raise HTTPException(401, detail={"code": "SIWE_ADDRESS_MISMATCH"})
+    if (
+        settings.normalized_mode == "staging"
+        and recovered.lower() not in settings.tester_allowlist
+    ):
+        raise HTTPException(403, detail={"code": "TESTER_NOT_ALLOWLISTED"})
     token = secrets.token_urlsafe(32)
     store.create_session(token, recovered, time.time() + 3600)
     return {"sessionToken": token, "address": recovered, "expiresIn": 3600}
@@ -701,6 +726,11 @@ def create_analysis(payload: dict, current: dict = Depends(authenticated_session
             "latestResolutionTimestamp": relationship["latestResolutionTimestamp"],
         },
     }
+    if artifact_store is not None:
+        stored = artifact_store.put(analysis_id, artifact)
+        record["artifactObjectKey"] = stored.key
+        record["artifactStorageHash"] = stored.sha256
+        del record["artifact"]
     store.save_analysis(analysis_id, record)
     return record
 
@@ -718,6 +748,10 @@ def get_analysis_artifact(analysis_id: str):
     record = store.get_analysis(analysis_id)
     if record is None:
         raise HTTPException(404, detail={"code": "ANALYSIS_NOT_FOUND"})
+    if artifact_store is not None:
+        return artifact_store.get(
+            record["artifactObjectKey"], record["artifactStorageHash"]
+        )
     return record["artifact"]
 
 
@@ -726,7 +760,12 @@ def verify_analysis(analysis_id: str):
     record = store.get_analysis(analysis_id)
     if record is None:
         raise HTTPException(404, detail={"code": "ANALYSIS_NOT_FOUND"})
-    artifact = ProofArtifact.model_validate(record["artifact"])
+    stored_artifact = (
+        artifact_store.get(record["artifactObjectKey"], record["artifactStorageHash"])
+        if artifact_store is not None
+        else record["artifact"]
+    )
+    artifact = ProofArtifact.model_validate(stored_artifact)
     reproduced = solve(artifact.request, timestamp=artifact.result.generatedAt)
     return {
         "analysisId": analysis_id,
