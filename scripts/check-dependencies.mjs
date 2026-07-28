@@ -16,6 +16,11 @@ const runJson = (args) => {
 };
 
 const production = runJson(["audit", "--prod", "--json"]);
+const productionAdvisoryIds = new Set(
+  Object.values(production.advisories ?? {}).map(
+    (advisory) => advisory.github_advisory_id,
+  ),
+);
 const productionBlocking = Object.values(production.advisories ?? {}).filter(
   (advisory) => severityRank[advisory.severity] >= severityRank.high,
 );
@@ -42,7 +47,9 @@ const allowed = new Map(
 const complete = runJson(["audit", "--json"]);
 const unapproved = Object.values(complete.advisories ?? {}).filter((advisory) => {
   if (severityRank[advisory.severity] < severityRank.high) return false;
-  const developmentOnly = advisory.findings.every((finding) => finding.dev === true);
+  // The --prod audit is the cross-platform source of truth for reachability.
+  // pnpm's per-finding `dev` flag differs across platforms for the same lockfile.
+  const developmentOnly = !productionAdvisoryIds.has(advisory.github_advisory_id);
   return !developmentOnly || !allowed.has(advisory.github_advisory_id);
 });
 if (unapproved.length) {
