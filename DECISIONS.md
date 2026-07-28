@@ -59,3 +59,22 @@
 20. **Public surface remains read-only.** The Sites deployment may expose live
     market and position reads, but quote signing and all capital writes remain
     disabled in `production-readonly`, independently of frontend controls.
+21. **Explicit pool return ledger.** Gross financing return, LP yield,
+    origination fees, protocol yield fees, borrower refunds and losses are
+    separate cumulative fields. The onchain book identity reconciles deposits,
+    withdrawals, LP yield and loss; the ambiguous `realizedYield` field is
+    removed.
+22. **Staging is a distinct trust boundary.** `EVENTCLEAR_MODE=staging` uses a
+    staging manifest and rejects the repository development signer, weak admin
+    credentials, missing durable stores, absent LP allowlist and missing RPC
+    fallback. A deployment template or CI Anvil run is not external staging.
+23. **Release security semantics are scope-aware.** High/critical production
+    dependency findings and disallowed licenses block. A development-only high
+    advisory requires a narrow, owned, expiring exception.
+
+## Release-blocker validation sprint
+
+Software checks are reported independently from remote operations. External
+staging remains incomplete until remote health URLs, contract transactions,
+lifecycle evidence and active monitoring can be verified. Polygon mainnet
+deployment and public capital activation remain prohibited.

@@ -13,6 +13,8 @@ export type PublicConfig = {
   contractDeploymentStatus: string;
   indexerStatus: string;
   relationshipDatabaseStatus: string;
+  auditStatus: string;
+  legalStatus: string;
   vaultAddress: Hex;
   fundingPoolAddress: Hex;
   collateralTokenAddress: Hex;

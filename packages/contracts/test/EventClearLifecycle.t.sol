@@ -242,7 +242,7 @@ contract EventClearLifecycleTest is Test {
         pool.redeemPrincipal(IPrincipalVault(address(vault)), bundleId, 100 * UNIT);
         assertEq(treasury.feesBySource(keccak256("ORIGINATION")), 475_000);
         assertEq(treasury.feesBySource(keccak256("REALIZED_FINANCING_RETURN")), 452_500);
-        assertEq(pool.realizedYield(), 4_072_500);
+        assertEq(pool.realizedLpYield(), 4_547_500);
         vm.prank(borrower);
         vault.redeemResidual(bundleId, 5e17);
         assertEq(pusd.balanceOf(borrower), 144_525_000);
@@ -344,7 +344,7 @@ contract EventClearLifecycleTest is Test {
         assertEq(bundle.residualAllocation, 0);
         pool.redeemPrincipal(IPrincipalVault(address(vault)), bundleId, 100 * UNIT);
         assertEq(pool.realizedLoss(), 20 * UNIT);
-        assertEq(pool.realizedYield(), 0);
+        assertEq(pool.realizedLpYield(), 0);
         assertEq(treasury.feesBySource(keccak256("ORIGINATION")), 0);
         assertEq(treasury.feesBySource(keccak256("REALIZED_FINANCING_RETURN")), 0);
         assertEq(pusd.balanceOf(borrower), 95 * UNIT);

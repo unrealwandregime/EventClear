@@ -12,3 +12,9 @@ description = "Deterministic API-test idempotency fixture (not a credential)"
 paths = ['''apps/api/tests/test_api\.py''']
 regexTarget = "match"
 regexes = ['''redemption-test-0001''']
+
+[[allowlists]]
+description = "Foundry/Anvil account #1 public test key used only by the local contract-integration test"
+paths = ['''apps/api/tests/test_contract_integration\.py''']
+regexTarget = "match"
+regexes = ['''0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d''']

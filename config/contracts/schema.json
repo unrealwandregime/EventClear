@@ -14,7 +14,7 @@
   ],
   "properties": {
     "environment": {
-      "enum": ["local", "polygon-fork", "polygon-mainnet"]
+      "enum": ["local", "staging", "polygon-fork", "polygon-mainnet"]
     },
     "chainId": {
       "type": "integer",

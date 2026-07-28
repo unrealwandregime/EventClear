@@ -1,5 +1,60 @@
 # EventClear Build Status
 
+## Release-blocker validation sprint
+
+Baseline: default-branch commit
+`3fb3459761c34301bcfc6b040b170bb3cba74255`, GitHub Actions run
+`30278980586`, public Sites version 7. The baseline fork job skipped and is not
+reported as passed.
+
+Implemented on `codex/release-blocker-validation`:
+
+- corrected the RiskPolicy collateral getter and added
+  `pnpm contracts:check-api-abi`;
+- added `make test-api-contract-integration`, which deploys the complete suite
+  to a real Anvil process, runs live contract reads and quote preflight, issues
+  a signed quote, simulates/submits approval and bundle opening, and checks
+  emitted/onchain state;
+- added explicit pool accounting fields and invariants for realized-return and
+  cumulative book reconciliation;
+- configured genuine Polygon fork semantics at block `90963627` and installed
+  the repository Actions secret without logging its value;
+- added blocking production dependency and license policy plus the single
+  expiring development-only advisory exception;
+- added a secret-required remote staging deployer, manifest/deployment recorder,
+  monitoring assets and incident runbook.
+
+Verified during implementation:
+
+- ABI compatibility: 34 Python read/transaction signatures matched compiled
+  ABIs.
+- Python solver/API: 49 passed; the dedicated deployed-contract run passed 2.
+- Solidity: 35 substantive local/fuzz/invariant tests passed, including 512
+  fuzz runs and 24,576 invariant handler calls.
+- Polygon fork: 3 genuinely executed tests passed at block `90963627`.
+- Indexer: 8 passed.
+- Browser lifecycle: 7 passed.
+- TypeScript typecheck, production build, dependency policy, license policy and
+  local broadcast demo lifecycle passed.
+
+Docker is unavailable on this Windows host. The pushed Linux workflow remains
+the source of Docker, Slither, reproducibility and final CI evidence; those
+results must not be described as passed until that workflow completes.
+
+External staging: **not operational**. No authenticated external service host,
+managed data-store, signer/KMS or monitoring destination was available. No
+Polygon mainnet deployment or public capital activation occurred.
+
+Repository administrators configure the fork endpoint without echoing it:
+
+```bash
+gh secret set POLYGON_RPC_URL --repo unrealwandregime/EventClear
+```
+
+Paste the archive-capable endpoint at the hidden prompt. Never place the value
+in workflow YAML, command output, documentation, or a committed environment
+file.
+
 Last updated: 2026-07-27  
 Target release: EventClear staging-ready v1 for reviewed standard crypto-threshold positions
 Sprint baseline: `7d65bb3bf8fd5d714a3c8a536389ebc5f2e76b10`

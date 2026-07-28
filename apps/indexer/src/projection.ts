@@ -29,7 +29,11 @@ export const emptyProjection = (): Projection => ({
   protocolEvents: new Map(),
   poolAccounts: new Map(),
   pool: {
-    realizedYieldAtomic: "0",
+    realizedGrossFinancingReturnAtomic: "0",
+    realizedLpYieldAtomic: "0",
+    realizedOriginationFeesAtomic: "0",
+    realizedProtocolYieldFeesAtomic: "0",
+    refundedQuotedFeesAtomic: "0",
     realizedLossAtomic: "0",
     outstandingAdvanceCostBasisAtomic: "0",
     outstandingQuotedFeesAtomic: "0",
@@ -116,8 +120,14 @@ export function applyIndexedEvent(state: Projection, event: IndexedEvent): Proje
         quotedOriginationFeeAtomic: text(payload.originationFee),
         netAdvanceAtomic: text(payload.netAdvance),
       });
-      state.pool.outstandingAdvanceCostBasisAtomic = text(payload.grossAdvance);
-      state.pool.outstandingQuotedFeesAtomic = text(payload.originationFee);
+      state.pool.outstandingAdvanceCostBasisAtomic = (
+        BigInt(text(state.pool.outstandingAdvanceCostBasisAtomic))
+        + BigInt(text(payload.grossAdvance))
+      ).toString();
+      state.pool.outstandingQuotedFeesAtomic = (
+        BigInt(text(state.pool.outstandingQuotedFeesAtomic))
+        + BigInt(text(payload.originationFee))
+      ).toString();
     } else if (event.eventName === "ClaimsMinted") {
       Object.assign(bundle, {
         principalAmountAtomic: text(payload.principalSupply),
@@ -172,20 +182,41 @@ export function applyIndexedEvent(state: Projection, event: IndexedEvent): Proje
     } else if (event.eventName === "PrincipalSettled") {
       const cost = BigInt(text(bundle.grossAdvanceAtomic || "0"));
       const received = BigInt(text(payload.principalReceived));
-      state.pool.realizedYieldAtomic = (
-        BigInt(text(state.pool.realizedYieldAtomic))
-        + BigInt(text(payload.realizedNetYield))
+      state.pool.realizedGrossFinancingReturnAtomic = (
+        BigInt(text(state.pool.realizedGrossFinancingReturnAtomic))
+        + BigInt(text(payload.grossFinancingReturn))
+      ).toString();
+      state.pool.realizedLpYieldAtomic = (
+        BigInt(text(state.pool.realizedLpYieldAtomic))
+        + BigInt(text(payload.realizedLpYield))
+      ).toString();
+      state.pool.realizedProtocolYieldFeesAtomic = (
+        BigInt(text(state.pool.realizedProtocolYieldFeesAtomic))
+        + BigInt(text(payload.protocolFee))
       ).toString();
       if (received < cost) {
         state.pool.realizedLossAtomic = (
           BigInt(text(state.pool.realizedLossAtomic)) + cost - received
         ).toString();
       }
-      state.pool.outstandingAdvanceCostBasisAtomic = "0";
-      state.pool.outstandingQuotedFeesAtomic = "0";
+      state.pool.outstandingAdvanceCostBasisAtomic = (
+        BigInt(text(state.pool.outstandingAdvanceCostBasisAtomic)) - cost
+      ).toString();
+      state.pool.outstandingQuotedFeesAtomic = (
+        BigInt(text(state.pool.outstandingQuotedFeesAtomic))
+        - BigInt(text(bundle.quotedOriginationFeeAtomic || "0"))
+      ).toString();
     } else if (event.eventName === "OriginationFeeSettled") {
       bundle.realizedOriginationFeeAtomic = text(payload.realizedFee);
       bundle.refundedOriginationFeeAtomic = text(payload.refundedFee);
+      state.pool.realizedOriginationFeesAtomic = (
+        BigInt(text(state.pool.realizedOriginationFeesAtomic))
+        + BigInt(text(payload.realizedFee))
+      ).toString();
+      state.pool.refundedQuotedFeesAtomic = (
+        BigInt(text(state.pool.refundedQuotedFeesAtomic))
+        + BigInt(text(payload.refundedFee))
+      ).toString();
     }
   }
 

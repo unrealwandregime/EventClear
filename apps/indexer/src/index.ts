@@ -37,7 +37,7 @@ export const protocolAbi = parseAbi([
   "event BundleShortfall(uint256 indexed bundleId,uint256 principal,uint256 proceeds)",
   "event PrincipalClaimed(uint256 indexed bundleId,address indexed account,uint256 claimsBurned,uint256 payout)",
   "event ResidualClaimed(uint256 indexed bundleId,address indexed account,uint256 claimsBurned,uint256 payout)",
-  "event PrincipalSettled(uint256 indexed bundleId,uint256 principalReceived,uint256 realizedNetYield,uint256 protocolFee)",
+  "event PrincipalSettled(uint256 indexed bundleId,uint256 principalReceived,uint256 grossFinancingReturn,uint256 realizedLpYield,uint256 protocolFee)",
   "event OriginationFeeSettled(uint256 indexed bundleId,uint256 quotedFee,uint256 realizedFee,uint256 refundedFee)",
   "event FeeRecorded(bytes32 indexed source,uint256 amount)",
   "event Deposit(address indexed sender,address indexed owner,uint256 assets,uint256 shares)",

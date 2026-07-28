@@ -24,9 +24,14 @@ contract EventClearFundingPool is ERC4626, AccessControl, ERC1155Holder {
 
     uint256 public outstandingAdvanceCostBasis;
     uint256 public outstandingQuotedFees;
-    uint256 public realizedYield;
+    uint256 public realizedGrossFinancingReturn;
+    uint256 public realizedLpYield;
     uint256 public realizedLoss;
     uint256 public realizedOriginationFees;
+    uint256 public realizedProtocolYieldFees;
+    uint256 public refundedQuotedFees;
+    uint256 public cumulativeNetDeposits;
+    uint256 public cumulativeWithdrawals;
     uint256 public depositCap;
     uint256 public perBundleCap;
     uint16 public utilizationCapBps = 8_000;
@@ -51,7 +56,11 @@ contract EventClearFundingPool is ERC4626, AccessControl, ERC1155Holder {
         uint256 netAdvance
     );
     event PrincipalSettled(
-        uint256 indexed bundleId, uint256 principalReceived, uint256 realizedNetYield, uint256 protocolFee
+        uint256 indexed bundleId,
+        uint256 principalReceived,
+        uint256 grossFinancingReturn,
+        uint256 realizedLpYield,
+        uint256 protocolFee
     );
     event OriginationFeeSettled(uint256 indexed bundleId, uint256 quotedFee, uint256 realizedFee, uint256 refundedFee);
 
@@ -68,6 +77,11 @@ contract EventClearFundingPool is ERC4626, AccessControl, ERC1155Holder {
     }
 
     function totalAssets() public view override returns (uint256) {
+        return bookTotalAssets();
+    }
+
+    /// @notice ERC-4626 assets at book value; unearned quoted fees remain excluded.
+    function bookTotalAssets() public view returns (uint256) {
         return IERC20(asset()).balanceOf(address(this)) + outstandingAdvanceCostBasis - outstandingQuotedFees;
     }
 
@@ -82,6 +96,19 @@ contract EventClearFundingPool is ERC4626, AccessControl, ERC1155Holder {
         uint256 reserve = totalAssets() * minimumReserveBps / 10_000;
         uint256 available = liquid > reserve ? liquid - reserve : 0;
         return entitled < available ? entitled : available;
+    }
+
+    function _deposit(address caller, address receiver, uint256 assets, uint256 shares) internal override {
+        super._deposit(caller, receiver, assets, shares);
+        cumulativeNetDeposits += assets;
+    }
+
+    function _withdraw(address caller, address receiver, address owner, uint256 assets, uint256 shares)
+        internal
+        override
+    {
+        super._withdraw(caller, receiver, owner, assets, shares);
+        cumulativeWithdrawals += assets;
     }
 
     function fundAdvance(uint256 bundleId, address borrower, uint256 amount, uint256 fee)
@@ -137,10 +164,14 @@ contract EventClearFundingPool is ERC4626, AccessControl, ERC1155Holder {
         uint256 refundedFee = quotedFee - realizedOriginationFee;
         uint256 remainingYield = grossYield - realizedOriginationFee;
         uint256 protocolFee = remainingYield * protocolYieldFeeBps / 10_000;
-        uint256 netYield = remainingYield - protocolFee;
-        realizedYield += netYield;
+        uint256 lpYield = grossYield - protocolFee;
+        uint256 grossFinancingReturn = grossYield;
+        realizedGrossFinancingReturn += grossFinancingReturn;
+        realizedLpYield += lpYield;
         realizedLoss += loss;
         realizedOriginationFees += realizedOriginationFee;
+        realizedProtocolYieldFees += protocolFee;
+        refundedQuotedFees += refundedFee;
         if (realizedOriginationFee != 0) {
             IERC20(asset()).safeTransfer(feeTreasury, realizedOriginationFee);
             IFeeTreasury(feeTreasury).recordFee(keccak256("ORIGINATION"), realizedOriginationFee);
@@ -151,7 +182,7 @@ contract EventClearFundingPool is ERC4626, AccessControl, ERC1155Holder {
         }
         if (refundedFee != 0) IERC20(asset()).safeTransfer(borrower, refundedFee);
         emit OriginationFeeSettled(bundleId, quotedFee, realizedOriginationFee, refundedFee);
-        emit PrincipalSettled(bundleId, principalReceived, netYield, protocolFee);
+        emit PrincipalSettled(bundleId, principalReceived, grossFinancingReturn, lpYield, protocolFee);
     }
 
     function setRiskLimits(uint16 utilization, uint16 reserve) external onlyRole(DEFAULT_ADMIN_ROLE) {
@@ -167,6 +198,14 @@ contract EventClearFundingPool is ERC4626, AccessControl, ERC1155Holder {
 
     function liquidAssets() external view returns (uint256) {
         return IERC20(asset()).balanceOf(address(this));
+    }
+
+    function realizedReturnIdentityHolds() external view returns (bool) {
+        return realizedGrossFinancingReturn == realizedLpYield + realizedProtocolYieldFees;
+    }
+
+    function bookAssetsIdentityHolds() external view returns (bool) {
+        return bookTotalAssets() + cumulativeWithdrawals + realizedLoss == cumulativeNetDeposits + realizedLpYield;
     }
 
     function accruedUnearnedDiscount() external pure returns (uint256) {

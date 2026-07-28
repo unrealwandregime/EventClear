@@ -15,7 +15,13 @@ from datetime import datetime
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
-from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    Counter,
+    Gauge,
+    Histogram,
+    generate_latest,
+)
 from redis.asyncio import from_url as redis_from_url
 from redis.exceptions import RedisError
 from eth_account import Account
@@ -69,6 +75,25 @@ REQUESTS = Counter(
     "eventclear_api_requests_total", "API requests", ["method", "path", "status"]
 )
 LATENCY = Histogram("eventclear_api_latency_seconds", "API request latency", ["path"])
+QUOTE_REJECTIONS = Counter(
+    "eventclear_quote_rejections_total", "Rejected quote preflights", ["code"]
+)
+POOL_LIQUID = Gauge(
+    "eventclear_pool_liquid_assets", "Pool liquid assets in atomic units"
+)
+POOL_OUTSTANDING = Gauge(
+    "eventclear_pool_outstanding_cost_basis",
+    "Pool outstanding gross-advance cost basis in atomic units",
+)
+POOL_UTILIZATION = Gauge(
+    "eventclear_pool_utilization_bps", "Pool utilization in basis points"
+)
+POOL_LP_YIELD = Gauge(
+    "eventclear_pool_realized_lp_yield", "Cumulative realized LP yield in atomic units"
+)
+POOL_LOSSES = Gauge(
+    "eventclear_pool_realized_losses", "Cumulative realized losses in atomic units"
+)
 rate_windows: dict[str, deque[float]] = defaultdict(deque)
 
 
@@ -282,6 +307,7 @@ async def _revalidate_saved_quote(quote_id: str, current: dict) -> tuple[dict, d
             require_fresh_books,
         )
     except QuotePreflightError as exc:
+        QUOTE_REJECTIONS.labels(code=exc.code).inc()
         raise HTTPException(422, detail={"code": exc.code}) from exc
     except RuntimeError as exc:
         raise HTTPException(503, detail={"code": str(exc)}) from exc
@@ -756,6 +782,7 @@ async def quote(payload: dict, current: dict = Depends(authenticated_session)):
             raise QuotePreflightError("SOLVER_ARTIFACT_CHANGED_BEFORE_SIGNING")
         result["preSignValidation"] = preflight
     except QuotePreflightError as exc:
+        QUOTE_REJECTIONS.labels(code=exc.code).inc()
         raise HTTPException(422, detail={"code": exc.code}) from exc
     except RuntimeError as exc:
         raise HTTPException(503, detail={"code": str(exc)}) from exc
@@ -828,6 +855,7 @@ async def refresh_quote(quote_id: str, current: dict = Depends(authenticated_ses
             raise QuotePreflightError("SOLVER_ARTIFACT_CHANGED_BEFORE_SIGNING")
         refreshed["preSignValidation"] = preflight
     except QuotePreflightError as exc:
+        QUOTE_REJECTIONS.labels(code=exc.code).inc()
         raise HTTPException(422, detail={"code": exc.code}) from exc
     except RuntimeError as exc:
         raise HTTPException(503, detail={"code": str(exc)}) from exc
@@ -1211,19 +1239,29 @@ def pool():
         indexed = store.get_pool_state()
         if indexed is None:
             raise HTTPException(503, detail={"code": "INDEXED_POOL_STATE_UNAVAILABLE"})
-        return indexed
-    return {
-        "totalAssetsAtomic": "1000000000",
-        "liquidAtomic": "905475000",
-        "outstandingAdvanceCostBasisAtomic": "95000000",
-        "outstandingQuotedFeesAtomic": "475000",
-        "utilizationBps": 950,
-        "realizedOriginationFeesAtomic": "0",
-        "realizedYieldAtomic": "0",
-        "realizedLossAtomic": "0",
-        "depositCapAtomic": "1000000000000",
-        "source": "seeded-local",
-    }
+        response = indexed
+    else:
+        response = {
+            "totalAssetsAtomic": "1000000000",
+            "liquidAtomic": "905475000",
+            "outstandingAdvanceCostBasisAtomic": "95000000",
+            "outstandingQuotedFeesAtomic": "475000",
+            "utilizationBps": 950,
+            "realizedOriginationFeesAtomic": "0",
+            "realizedGrossFinancingReturnAtomic": "0",
+            "realizedLpYieldAtomic": "0",
+            "realizedProtocolYieldFeesAtomic": "0",
+            "refundedQuotedFeesAtomic": "0",
+            "realizedLossAtomic": "0",
+            "depositCapAtomic": "1000000000000",
+            "source": "seeded-local",
+        }
+    POOL_LIQUID.set(int(response.get("liquidAtomic", "0")))
+    POOL_OUTSTANDING.set(int(response.get("outstandingAdvanceCostBasisAtomic", "0")))
+    POOL_UTILIZATION.set(int(response.get("utilizationBps", 0)))
+    POOL_LP_YIELD.set(int(response.get("realizedLpYieldAtomic", "0")))
+    POOL_LOSSES.set(int(response.get("realizedLossAtomic", "0")))
+    return response
 
 
 @app.get("/api/v1/pool/history")
