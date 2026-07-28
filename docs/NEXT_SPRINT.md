@@ -1,5 +1,21 @@
 # EventClear staging-v1 sprint
 
+## Release-blocker validation sprint
+
+- [x] Correct `allowedCollaterals(address)` and add compiled ABI verification.
+- [x] Add a dedicated real-Anvil API/contract test command and rejection matrix.
+- [x] Replace ambiguous pool yield metrics with an explicit reconciled ledger.
+- [x] Make fork-secret and dependency/license CI outcomes blocking and explicit.
+- [x] Add fail-closed staging deployment, manifest-recording and monitoring
+  configuration.
+- [ ] Provision an externally reachable staging host and managed services.
+- [ ] Deploy staging contracts and commit the generated staging manifest.
+- [ ] Run and record the complete remote lifecycle and monitoring drill.
+- [ ] Obtain independent security review and legal approval.
+
+The unchecked items require external credentials or third-party approvals; no
+mainnet activation is implied.
+
 Baseline: `7d65bb3bf8fd5d714a3c8a536389ebc5f2e76b10`
 
 ## Security-critical

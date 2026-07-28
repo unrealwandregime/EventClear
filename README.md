@@ -86,7 +86,9 @@ controls, not documentation.
 - `EventClearClaims` mints transferable ERC-1155 principal and residual claims with deterministic IDs `(bundleId << 8) | claimType`.
 - `EventClearFundingPool` is an allowlisted ERC-4626 pilot pool. `totalAssets =
   liquid pUSD + outstanding gross advance cost basis - outstanding quoted
-  fees`; unearned fees and yield are not recognized before settlement.
+  fees`; unearned fees and yield are not recognized before settlement. Its
+  explicit ledgers separate gross financing return, LP yield, origination and
+  protocol fees, borrower refunds, and realized loss.
 - `PolymarketStandardAdapter` isolates exact standard-market legs before CTF redemption and wraps the resulting USDC.e into pUSD. Negative-risk originations are disabled for the first pilot.
 - `EventClearTreasury` records fee sources and permits multisig-controlled withdrawal.
 - Local mocks implement pUSD, CTF positions, resolution, redemption, fractional payouts, and a full bundle lifecycle.

@@ -21,7 +21,7 @@ type ContractEntry = {
 };
 
 type Manifest = {
-  environment: "local" | "polygon-fork" | "polygon-mainnet";
+  environment: "local" | "staging" | "polygon-fork" | "polygon-mainnet";
   chainId: number;
   reviewedAt: string;
   registrySource: string;
@@ -55,7 +55,7 @@ const normalizedEnvironment =
   environment === "production-readonly" || environment === "production-controlled"
     ? "polygon-mainnet"
     : environment;
-if (!["local", "polygon-fork", "polygon-mainnet"].includes(normalizedEnvironment)) {
+if (!["local", "staging", "polygon-fork", "polygon-mainnet"].includes(normalizedEnvironment)) {
   fail(`Unsupported manifest environment: ${environment}`);
 }
 
@@ -93,7 +93,8 @@ for (const [name, entry] of Object.entries(manifest.contracts)) {
   if (getAddress(entry.address) !== entry.address) fail(`${name} is not EIP-55 checksummed`);
 }
 
-const expectedChainId = manifest.environment === "local" ? 31337 : 137;
+const expectedChainId =
+  manifest.environment === "local" || manifest.environment === "staging" ? 31337 : 137;
 if (manifest.chainId !== expectedChainId) fail(`Unexpected chain ID ${manifest.chainId}`);
 if (manifest.environment === "local" && Object.keys(manifest.contracts).length === 0) {
   console.log(`verified local deployment-template manifest ${manifest.manifestHash}`);
@@ -108,7 +109,18 @@ const required = [
   "negativeRiskCollateralAdapter",
   "negativeRiskAdapter",
 ] as const;
-for (const name of required) {
+const stagingRequired = [
+  "collateralToken",
+  "conditionalTokens",
+  "standardAdapter",
+  "relationshipRegistry",
+  "riskPolicy",
+  "claims",
+  "treasury",
+  "fundingPool",
+  "vault",
+] as const;
+for (const name of manifest.environment === "staging" ? stagingRequired : required) {
   if (!manifest.contracts[name]) fail(`Required contract missing: ${name}`);
 }
 
@@ -119,14 +131,16 @@ const configuredAddresses = {
   CTF_COLLATERAL_ADAPTER_ADDRESS: "ctfCollateralAdapter",
   NEG_RISK_COLLATERAL_ADAPTER_ADDRESS: "negativeRiskCollateralAdapter",
 } as const;
-for (const [environmentKey, manifestKey] of Object.entries(configuredAddresses)) {
-  const configured = process.env[environmentKey];
-  const reviewed = manifest.contracts[manifestKey].address;
-  if (manifest.environment === "polygon-mainnet" && !configured && process.env.EVENTCLEAR_MODE === "production-controlled") {
-    fail(`${environmentKey} is required in controlled production`);
-  }
-  if (configured && getAddress(configured) !== reviewed) {
-    fail(`${environmentKey} does not match the reviewed manifest`);
+if (manifest.environment !== "staging") {
+  for (const [environmentKey, manifestKey] of Object.entries(configuredAddresses)) {
+    const configured = process.env[environmentKey];
+    const reviewed = manifest.contracts[manifestKey].address;
+    if (manifest.environment === "polygon-mainnet" && !configured && process.env.EVENTCLEAR_MODE === "production-controlled") {
+      fail(`${environmentKey} is required in controlled production`);
+    }
+    if (configured && getAddress(configured) !== reviewed) {
+      fail(`${environmentKey} does not match the reviewed manifest`);
+    }
   }
 }
 
@@ -134,7 +148,7 @@ const rpcUrls = (process.env.POLYGON_RPC_URLS ?? "")
   .split(",")
   .map((value) => value.trim())
   .filter(Boolean);
-if (!rpcUrls.length) fail("POLYGON_RPC_URLS is required for Polygon manifests");
+if (!rpcUrls.length) fail("POLYGON_RPC_URLS is required for live manifest verification");
 if (manifest.environment === "polygon-mainnet" && rpcUrls.length < 2) {
   fail("At least two independent Polygon RPC URLs are required for mainnet verification");
 }
@@ -159,6 +173,8 @@ for (const rpcUrl of rpcUrls) {
   bytecodes.forEach((code, index) => {
     if (!code || code === "0x") fail(`${entries[index][0]} has no bytecode on ${rpcUrl}`);
   });
+
+  if (manifest.environment === "staging") continue;
 
   const collateral = manifest.contracts.pUSD.address;
   const usdce = manifest.contracts.usdce.address;

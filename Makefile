@@ -1,7 +1,7 @@
 PNPM ?= pnpm
 PYTHON ?= python
 
-.PHONY: install dev stop reset seed test test-contracts test-solver test-api test-indexer test-e2e test-fork lint typecheck security deploy-local demo-lifecycle
+.PHONY: install dev stop reset seed test test-contracts test-api-contract-integration test-solver test-api test-indexer test-e2e test-fork lint typecheck security deploy-local demo-lifecycle
 install:
 	$(PNPM) install
 	$(PYTHON) -m pip install -e apps/solver -e apps/api pytest
@@ -21,13 +21,17 @@ test: test-solver test-contracts test-api test-indexer
 	$(PNPM) test
 
 test-contracts:
-	cd packages/contracts && forge test -vvv
+	$(PYTHON) scripts/check_api_abi.py
+	cd packages/contracts && forge test --no-match-path "test/fork/*" -vvv
 
 test-solver:
 	$(PYTHON) -m pytest apps/solver/tests
 
 test-api:
 	$(PYTHON) -m pytest apps/api/tests
+
+test-api-contract-integration:
+	bash scripts/test-api-contract-integration.sh
 
 test-indexer:
 	$(PNPM) indexer:test
@@ -48,7 +52,8 @@ typecheck:
 
 security:
 	cd packages/contracts && slither . --config-file ../../slither.config.json
-	$(PNPM) audit --audit-level high
+	$(PNPM) security:dependencies
+	$(PNPM) security:licenses
 
 seed:
 	$(PYTHON) scripts/seed.py

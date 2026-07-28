@@ -1,0 +1,17 @@
+{
+  "title": "EventClear staging",
+  "uid": "eventclear-staging",
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "15s",
+  "panels": [
+    {"type":"timeseries","title":"API request rate / errors","targets":[{"expr":"sum(rate(eventclear_api_requests_total[5m])) by (status)"}],"gridPos":{"x":0,"y":0,"w":12,"h":8}},
+    {"type":"timeseries","title":"API latency","targets":[{"expr":"histogram_quantile(0.95, sum(rate(eventclear_api_latency_seconds_bucket[5m])) by (le))"}],"gridPos":{"x":12,"y":0,"w":12,"h":8}},
+    {"type":"timeseries","title":"Quote rejection codes","targets":[{"expr":"sum(rate(eventclear_quote_rejections_total[5m])) by (code)"}],"gridPos":{"x":0,"y":8,"w":12,"h":8}},
+    {"type":"timeseries","title":"Indexer block lag","targets":[{"expr":"eventclear_indexer_block_lag"}],"gridPos":{"x":12,"y":8,"w":12,"h":8}},
+    {"type":"stat","title":"Pool liquid assets","targets":[{"expr":"eventclear_pool_liquid_assets"}],"gridPos":{"x":0,"y":16,"w":6,"h":6}},
+    {"type":"stat","title":"Outstanding cost basis","targets":[{"expr":"eventclear_pool_outstanding_cost_basis"}],"gridPos":{"x":6,"y":16,"w":6,"h":6}},
+    {"type":"stat","title":"LP yield / losses","targets":[{"expr":"eventclear_pool_realized_lp_yield"},{"expr":"eventclear_pool_realized_losses"}],"gridPos":{"x":12,"y":16,"w":6,"h":6}},
+    {"type":"stat","title":"Treasury fees","targets":[{"expr":"eventclear_treasury_fees"}],"gridPos":{"x":18,"y":16,"w":6,"h":6}}
+  ]
+}

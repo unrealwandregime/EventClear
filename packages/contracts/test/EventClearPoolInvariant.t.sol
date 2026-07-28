@@ -68,6 +68,12 @@ contract EventClearPoolInvariantTest is StdInvariant, Test {
     function invariantUtilizationNeverExceedsConfiguredCap() public view {
         assertLe(pool.utilizationBps(), pool.utilizationCapBps());
     }
+
+    function invariantRealizedReturnComponentsReconcile() public view {
+        assertEq(pool.realizedGrossFinancingReturn(), pool.realizedLpYield() + pool.realizedProtocolYieldFees());
+        assertTrue(pool.realizedReturnIdentityHolds());
+        assertTrue(pool.bookAssetsIdentityHolds());
+    }
 }
 
 contract EventClearFundingPoolFeeTest is Test {
@@ -106,8 +112,12 @@ contract EventClearFundingPoolFeeTest is Test {
         assertEq(treasury.feesBySource(keccak256("ORIGINATION")), 475_000);
         assertEq(treasury.feesBySource(keccak256("REALIZED_FINANCING_RETURN")), 452_500);
         assertEq(asset.balanceOf(address(treasury)), 927_500);
+        assertEq(treasury.totalFeesRecorded(), 927_500);
         assertEq(pool.realizedOriginationFees(), 475_000);
-        assertEq(pool.realizedYield(), 4_072_500);
+        assertEq(pool.realizedGrossFinancingReturn(), 5_000_000);
+        assertEq(pool.realizedLpYield(), 4_547_500);
+        assertEq(pool.realizedProtocolYieldFees(), 452_500);
+        assertEq(pool.refundedQuotedFees(), 0);
         assertEq(pool.realizedLoss(), 0);
         assertEq(pool.outstandingQuotedFees(), 0);
     }
@@ -117,15 +127,27 @@ contract EventClearFundingPoolFeeTest is Test {
         assertEq(treasury.feesBySource(keccak256("ORIGINATION")), 100_000);
         assertEq(treasury.feesBySource(keccak256("REALIZED_FINANCING_RETURN")), 0);
         assertEq(asset.balanceOf(borrower), 94_900_000);
-        assertEq(pool.realizedYield(), 0);
+        assertEq(pool.realizedGrossFinancingReturn(), 100_000);
+        assertEq(pool.realizedLpYield(), 100_000);
+        assertEq(pool.refundedQuotedFees(), 375_000);
         assertEq(pool.realizedLoss(), 0);
+    }
+
+    function testReturnExactlyQuotedFeeRealizesFeeWithoutProtocolCut() public {
+        _fundAndSettle(20, 95e6, 475_000, 95_475_000);
+        assertEq(pool.realizedOriginationFees(), 475_000);
+        assertEq(pool.realizedProtocolYieldFees(), 0);
+        assertEq(pool.realizedLpYield(), 475_000);
+        assertEq(pool.refundedQuotedFees(), 0);
+        assertTrue(pool.bookAssetsIdentityHolds());
     }
 
     function testBreakEvenPaysNoFeesAndRefundsQuotedFee() public {
         _fundAndSettle(3, 95e6, 475_000, 95e6);
         assertEq(asset.balanceOf(address(treasury)), 0);
         assertEq(asset.balanceOf(borrower), 95e6);
-        assertEq(pool.realizedYield(), 0);
+        assertEq(pool.realizedLpYield(), 0);
+        assertEq(pool.refundedQuotedFees(), 475_000);
         assertEq(pool.realizedLoss(), 0);
     }
 
@@ -133,14 +155,51 @@ contract EventClearFundingPoolFeeTest is Test {
         _fundAndSettle(4, 95e6, 475_000, 75e6);
         assertEq(asset.balanceOf(address(treasury)), 0);
         assertEq(asset.balanceOf(borrower), 95e6);
-        assertEq(pool.realizedYield(), 0);
+        assertEq(pool.realizedLpYield(), 0);
         assertEq(pool.realizedLoss(), 20e6);
+    }
+
+    function testTotalShortfallRefundsFeeAndCannotChargeTreasury() public {
+        _fundAndSettle(21, 95e6, 475_000, 0);
+        assertEq(pool.realizedLoss(), 95e6);
+        assertEq(pool.realizedOriginationFees(), 0);
+        assertEq(pool.realizedProtocolYieldFees(), 0);
+        assertEq(pool.refundedQuotedFees(), 475_000);
+        assertEq(treasury.totalFeesRecorded(), 0);
+        assertTrue(pool.bookAssetsIdentityHolds());
+    }
+
+    function testMultipleBundlesReconcileWhenSettledOutOfOrder() public {
+        pool.fundAdvance(30, borrower, 40e6, 200_000);
+        pool.fundAdvance(31, borrower, 50e6, 250_000);
+        assertEq(pool.outstandingAdvanceCostBasis(), 90e6);
+        asset.mint(address(this), 55e6);
+        pool.recordSettlement(31, 55e6);
+        assertEq(pool.outstandingAdvanceCostBasis(), 40e6);
+        asset.mint(address(this), 35e6);
+        pool.recordSettlement(30, 35e6);
+        assertEq(pool.outstandingAdvanceCostBasis(), 0);
+        assertEq(pool.realizedLoss(), 5e6);
+        assertTrue(pool.realizedReturnIdentityHolds());
+        assertTrue(pool.bookAssetsIdentityHolds());
+    }
+
+    function testDepositAndWithdrawalDuringOutstandingAdvanceReconcile() public {
+        pool.fundAdvance(40, borrower, 50e6, 250_000);
+        asset.mint(address(this), 100e6);
+        pool.deposit(100e6, address(this));
+        uint256 withdrawal = pool.maxWithdraw(address(this)) / 4;
+        pool.withdraw(withdrawal, address(this), address(this));
+        assertEq(pool.cumulativeNetDeposits(), 1_100e6);
+        assertEq(pool.cumulativeWithdrawals(), withdrawal);
+        assertTrue(pool.bookAssetsIdentityHolds());
     }
 
     function testFeeRoundingUsesOnlyAdditionalReturn() public {
         _fundAndSettle(5, 1e6, 100, 1_000_111);
         assertEq(treasury.feesBySource(keccak256("ORIGINATION")), 100);
         assertEq(treasury.feesBySource(keccak256("REALIZED_FINANCING_RETURN")), 1);
-        assertEq(pool.realizedYield(), 10);
+        assertEq(pool.realizedGrossFinancingReturn(), 111);
+        assertEq(pool.realizedLpYield(), 110);
     }
 }

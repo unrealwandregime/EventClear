@@ -53,6 +53,36 @@ test("restart from checkpoint rebuilds the same projection", () => {
   );
 });
 
+test("pool settlement projects explicit reconciled return fields", () => {
+  const state = rebuildProjection([
+    event("AdvanceFunded", {
+      bundleId: "9",
+      grossAdvance: "95000000",
+      originationFee: "475000",
+      netAdvance: "94525000",
+    }),
+    event("OriginationFeeSettled", {
+      bundleId: "9",
+      quotedFee: "475000",
+      realizedFee: "475000",
+      refundedFee: "0",
+    }, { logIndex: 1 }),
+    event("PrincipalSettled", {
+      bundleId: "9",
+      principalReceived: "100000000",
+      grossFinancingReturn: "5000000",
+      realizedLpYield: "4547500",
+      protocolFee: "452500",
+    }, { logIndex: 2 }),
+  ]);
+  assert.equal(state.pool.realizedGrossFinancingReturnAtomic, "5000000");
+  assert.equal(state.pool.realizedLpYieldAtomic, "4547500");
+  assert.equal(state.pool.realizedOriginationFeesAtomic, "475000");
+  assert.equal(state.pool.realizedProtocolYieldFeesAtomic, "452500");
+  assert.equal(state.pool.outstandingAdvanceCostBasisAtomic, "0");
+  assert.equal(state.pool.outstandingQuotedFeesAtomic, "0");
+});
+
 test("reorg rollback and removed logs exclude orphaned state", () => {
   const canonical = event("BundleOpened", { bundleId: "1" });
   const orphan = event(

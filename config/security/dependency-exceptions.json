@@ -1,0 +1,11 @@
+{
+  "exceptions": [
+    {
+      "advisoryId": "GHSA-mh99-v99m-4gvg",
+      "scope": "development-only",
+      "expires": "2026-08-31",
+      "owner": "protocol-engineering",
+      "reason": "Transitive brace-expansion 1.1.16 is reachable only through ESLint tooling; it is not shipped in production artifacts. Remove when the upstream ESLint graph publishes a patched compatible release."
+    }
+  ]
+}

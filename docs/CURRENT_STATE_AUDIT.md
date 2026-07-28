@@ -1,5 +1,25 @@
 # EventClear Current-State Audit
 
+## Release-blocker validation sprint
+
+- Baseline default-branch commit inspected:
+  `3fb3459761c34301bcfc6b040b170bb3cba74255`.
+- Baseline CI run `30278980586` was green, but its Polygon-fork job skipped
+  because the RPC secret was absent; it is not counted as fork validation.
+- GitHub now has a `POLYGON_RPC_URL` Actions secret. Default-branch and tag
+  workflows fail with `POLYGON_FORK_RPC_REQUIRED` if it is removed; untrusted
+  PRs report `SKIPPED_NOT_CONFIGURED`.
+- The live getter mismatch was `allowedCollateral(address)` versus compiled
+  `allowedCollaterals(address)`. The call is corrected and a compiler-backed
+  Python-call/ABI checker is in CI.
+- Pool return fields and the cumulative book identity are explicit. API,
+  indexer and frontend names follow the same ledger.
+- Public Sites deployment version 7 remains `production-readonly`.
+- GitHub and Sites are authenticated. No external container/cloud, managed
+  PostgreSQL/Redis, object-storage, KMS, logging or error-reporting credential
+  is available in this environment. Remote staging is therefore not currently
+  deployed and must not be called operational.
+
 Audit date: 2026-07-27  
 Baseline commit: `7d65bb3bf8fd5d714a3c8a536389ebc5f2e76b10`
 

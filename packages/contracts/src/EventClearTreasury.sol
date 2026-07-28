@@ -9,6 +9,7 @@ contract EventClearTreasury is AccessControl {
     using SafeERC20 for IERC20;
     bytes32 public constant RECORDER_ROLE = keccak256("RECORDER_ROLE");
     mapping(bytes32 source => uint256 amount) public feesBySource;
+    uint256 public totalFeesRecorded;
 
     event FeeRecorded(bytes32 indexed source, uint256 amount);
     event TreasuryWithdrawal(address indexed token, address indexed to, uint256 amount);
@@ -20,6 +21,7 @@ contract EventClearTreasury is AccessControl {
 
     function recordFee(bytes32 source, uint256 amount) external onlyRole(RECORDER_ROLE) {
         feesBySource[source] += amount;
+        totalFeesRecorded += amount;
         emit FeeRecorded(source, amount);
     }
 

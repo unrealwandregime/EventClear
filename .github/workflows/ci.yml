@@ -38,13 +38,20 @@ jobs:
         run: |
           forge install OpenZeppelin/openzeppelin-contracts@v5.4.0 foundry-rs/forge-std --no-git
           forge fmt --check
-          forge test -vvv
+          forge test --no-match-path "test/fork/*" -vvv
           forge build --sizes
+      - run: python scripts/check_api_abi.py
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - run: pip install slither-analyzer
+      - run: pip install -e apps/solver -e apps/api pytest slither-analyzer
+      - run: make test-api-contract-integration
       - working-directory: packages/contracts
-        run: slither . --config-file ../../slither.config.json
+        run: slither . --config-file ../../slither.config.json --json ../../slither-report.json
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: slither-report
+          path: slither-report.json
   supply-chain:
     runs-on: ubuntu-latest
     steps:
@@ -56,11 +63,13 @@ jobs:
           GITLEAKS_CONFIG: .gitleaks.toml
           GITLEAKS_ENABLE_COMMENTS: "false"
       - uses: anchore/scan-action@v6
-        with: { path: ".", fail-build: false, severity-cutoff: high }
+        with: { path: ".", fail-build: true, severity-cutoff: critical }
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
-      - run: pnpm audit --audit-level critical
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm security:dependencies
+      - run: pnpm security:licenses
   docker:
     runs-on: ubuntu-latest
     steps:
@@ -91,9 +100,21 @@ jobs:
       - uses: actions/checkout@v4
       - uses: foundry-rs/foundry-toolchain@v1
       - working-directory: packages/contracts
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GIT_REF: ${{ github.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           if [ -z "$POLYGON_RPC_URL" ]; then
-            echo "Polygon fork test not configured; POLYGON_RPC_URL is absent."
+            if [ "$EVENT_NAME" = "push" ] && { [ "$GIT_REF" = "refs/heads/$DEFAULT_BRANCH" ] || [[ "$GIT_REF" == refs/tags/* ]]; }; then
+              echo "POLYGON_FORK_RPC_REQUIRED: default-branch and tag validation cannot skip."
+              exit 1
+            fi
+            echo "SKIPPED_NOT_CONFIGURED: POLYGON_RPC_URL is absent for this non-release validation."
+            echo "### Polygon fork: SKIPPED_NOT_CONFIGURED" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          forge test --match-path "test/fork/*" --fork-url "$POLYGON_RPC_URL" --fork-block-number 90963627
+          forge install OpenZeppelin/openzeppelin-contracts@v5.4.0 foundry-rs/forge-std --no-git
+          forge test -vvv --match-path "test/fork/*" --fork-url "$POLYGON_RPC_URL" --fork-block-number 90963627
+          echo "PASSED: Polygon fork tests executed at block 90963627."
+          echo "### Polygon fork: PASSED at block 90963627" >> "$GITHUB_STEP_SUMMARY"

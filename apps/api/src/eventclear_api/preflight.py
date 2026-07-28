@@ -214,6 +214,9 @@ async def _live_pool_and_risk(
         gateway.contract_code(settings.risk_policy_address),
         gateway.contract_code(settings.relationship_registry_address),
     )
+    _reject(pool_code == "0x", "POOL_CONTRACT_NOT_DEPLOYED")
+    _reject(risk_code == "0x", "RISK_POLICY_NOT_DEPLOYED")
+    _reject(registry_code == "0x", "RELATIONSHIP_REGISTRY_NOT_DEPLOYED")
     pool_names = (
         "liquidAssets",
         "totalAssets",
@@ -230,8 +233,6 @@ async def _live_pool_and_risk(
     )
     pool = dict(zip(pool_names, pool_values, strict=True))
     pool["bytecodeExists"] = pool_code != "0x"
-    _reject(risk_code == "0x", "RISK_POLICY_NOT_DEPLOYED")
-    _reject(registry_code == "0x", "RELATIONSHIP_REGISTRY_NOT_DEPLOYED")
     relationship_hash_bytes = bytes.fromhex(
         relationship["canonicalDefinitionHash"].removeprefix("0x")
     )
@@ -336,7 +337,7 @@ async def _live_pool_and_risk(
         ),
         gateway.contract_call(
             settings.risk_policy_address,
-            "allowedCollateral(address)",
+            "allowedCollaterals(address)",
             ["address"],
             [settings.collateral_token_address],
         ),

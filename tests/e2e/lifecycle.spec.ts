@@ -113,7 +113,11 @@ async function mockApi(
       liquidAtomic: "1000000000",
       outstandingAdvanceCostBasisAtomic: "0",
       outstandingQuotedFeesAtomic: "0",
-      realizedYieldAtomic: "0",
+      realizedGrossFinancingReturnAtomic: "0",
+      realizedLpYieldAtomic: "0",
+      realizedOriginationFeesAtomic: "0",
+      realizedProtocolYieldFeesAtomic: "0",
+      refundedQuotedFeesAtomic: "0",
       realizedLossAtomic: "0",
       utilizationBps: 0,
     });

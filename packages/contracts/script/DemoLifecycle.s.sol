@@ -130,7 +130,7 @@ contract DemoLifecycle is Script {
         console2.log("vault", address(vault));
         console2.log("bundleId", bundleId);
         console2.log("borrowerFinalPUSD", pusd.balanceOf(borrower));
-        console2.log("poolRealizedYield", pool.realizedYield());
+        console2.log("poolRealizedLpYield", pool.realizedLpYield());
     }
 
     function _sign(EventClearVault vault, EventClearVault.FinancingQuote memory quote, uint256 signerKey)

@@ -66,7 +66,11 @@ type PoolRecord = {
   liquidAtomic: string;
   outstandingAdvanceCostBasisAtomic: string;
   outstandingQuotedFeesAtomic: string;
-  realizedYieldAtomic: string;
+  realizedGrossFinancingReturnAtomic: string;
+  realizedLpYieldAtomic: string;
+  realizedOriginationFeesAtomic: string;
+  realizedProtocolYieldFeesAtomic: string;
+  refundedQuotedFeesAtomic: string;
   realizedLossAtomic: string;
   utilizationBps: number;
 };
@@ -402,6 +406,8 @@ export function EventClearApp() {
     ["Contract deployment status", config.contractDeploymentStatus],
     ["Indexer status", config.indexerStatus],
     ["Relationship database status", config.relationshipDatabaseStatus],
+    ["Audit status", config.auditStatus],
+    ["Legal status", config.legalStatus],
   ] : [];
 
   return (
@@ -595,7 +601,11 @@ export function EventClearApp() {
                   <div><label>Liquid reserve</label><strong>{formatPusd(pool?.liquidAtomic)}</strong></div>
                   <div><label>Outstanding cost</label><strong>{formatPusd(pool?.outstandingAdvanceCostBasisAtomic)}</strong></div>
                   <div><label>Pending quoted fees</label><strong>{formatPusd(pool?.outstandingQuotedFeesAtomic)}</strong></div>
-                  <div><label>Realized yield</label><strong>{formatPusd(pool?.realizedYieldAtomic)}</strong></div>
+                  <div><label>Gross financing return</label><strong>{formatPusd(pool?.realizedGrossFinancingReturnAtomic)}</strong></div>
+                  <div><label>LP yield</label><strong>{formatPusd(pool?.realizedLpYieldAtomic)}</strong></div>
+                  <div><label>Origination fees</label><strong>{formatPusd(pool?.realizedOriginationFeesAtomic)}</strong></div>
+                  <div><label>Protocol yield fees</label><strong>{formatPusd(pool?.realizedProtocolYieldFeesAtomic)}</strong></div>
+                  <div><label>Refunded quoted fees</label><strong>{formatPusd(pool?.refundedQuotedFeesAtomic)}</strong></div>
                   <div><label>Realized loss</label><strong>{formatPusd(pool?.realizedLossAtomic)}</strong></div>
                 </div>
               </div>

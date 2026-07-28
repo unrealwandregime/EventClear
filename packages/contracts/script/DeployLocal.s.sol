@@ -20,7 +20,8 @@ contract DeployLocal is Script {
             "LOCAL_DEPLOYER_PRIVATE_KEY", uint256(0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80)
         );
         address deployer = vm.addr(key);
-        address signer = vm.envOr("RISK_SIGNER_ADDRESS", deployer);
+        address controlledEoa = 0x70997970C51812dc3A010C7d01b50e0d17dc79C8;
+        address signer = vm.envOr("RISK_SIGNER_ADDRESS", controlledEoa);
         vm.startBroadcast(key);
         MockPUSD pusd = new MockPUSD();
         MockConditionalTokens ctf = new MockConditionalTokens();
@@ -41,6 +42,24 @@ contract DeployLocal is Script {
         pool.grantRole(pool.VAULT_ROLE(), address(vault));
         treasury.grantRole(treasury.RECORDER_ROLE(), address(pool));
         riskPolicy.grantRole(riskPolicy.VAULT_ROLE(), address(vault));
+        registry.register(
+            bytes32(uint256(0xabababababababababababababababababababababababababababababababab)),
+            3,
+            uint64(block.timestamp),
+            0,
+            1_798_761_599,
+            1_799_366_399,
+            bytes32(uint256(0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd))
+        );
+        pusd.mint(deployer, 1_000e6);
+        pusd.approve(address(pool), type(uint256).max);
+        pool.deposit(1_000e6, deployer);
+        bytes32 lowerCondition = bytes32(uint256(0x1111111111111111111111111111111111111111111111111111111111111111));
+        bytes32 upperCondition = bytes32(uint256(0x2222222222222222222222222222222222222222222222222222222222222222));
+        ctf.createPosition(lowerCondition, 1, 2);
+        ctf.createPosition(upperCondition, 3, 4);
+        ctf.mint(controlledEoa, 1, 100e6);
+        ctf.mint(controlledEoa, 4, 100e6);
         vm.stopBroadcast();
     }
 }

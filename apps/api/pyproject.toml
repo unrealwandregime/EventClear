@@ -19,6 +19,9 @@ dependencies = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src", "../solver/src"]
+markers = [
+  "contract_integration: calls contracts deployed to a real Anvil JSON-RPC process",
+]
 
 [build-system]
 requires = ["hatchling"]

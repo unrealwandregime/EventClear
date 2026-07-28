@@ -113,7 +113,7 @@ class Settings:
             "local": "local",
             "test": "local",
             "polygon-fork": "polygon-fork",
-            "staging": "local",
+            "staging": "staging",
             "production-readonly": "polygon-mainnet",
             "production-controlled": "polygon-mainnet",
         }[mode]
@@ -207,6 +207,32 @@ class Settings:
                 missing.append("LP_ALLOWLIST")
             if missing or self.chain_id != 137:
                 raise RuntimeError(f"MAINNET_SAFETY_GATE_FAILED:{','.join(missing)}")
+        if self.normalized_mode == "staging":
+            missing = []
+            if self.store_backend != "postgres":
+                missing.append("EVENTCLEAR_STORE=postgres")
+            if not self.database_url:
+                missing.append("DATABASE_URL")
+            if not self.redis_url:
+                missing.append("REDIS_URL")
+            if len(self.admin_api_token) < 32 or self.admin_api_token == "local-admin":
+                missing.append("ADMIN_API_TOKEN_STRONG")
+            if not self.siwe_uri.startswith("https://"):
+                missing.append("SIWE_URI_HTTPS")
+            if not self.signer_address:
+                missing.append("RISK_SIGNER_ADDRESS")
+            if self.signer_backend == "local" and (
+                "RISK_SIGNER_PRIVATE_KEY" not in os.environ
+                or self.signer_key
+                == "0x59c6995e998f97a5a0044976f0945389dc9e86dae88c7a8412f4603b6b78690d"
+            ):
+                missing.append("DEDICATED_STAGING_SIGNER")
+            if not self.lp_allowlist:
+                missing.append("LP_ALLOWLIST")
+            if len(set(self.polygon_rpc_urls)) < 2:
+                missing.append("RPC_PRIMARY_AND_FALLBACK")
+            if missing:
+                raise RuntimeError(f"STAGING_SAFETY_GATE_FAILED:{','.join(missing)}")
         if self.normalized_mode == "production-readonly" and self.chain_id != 137:
             raise RuntimeError("PRODUCTION_READONLY_CHAIN_ID_MUST_BE_137")
         if self.normalized_mode in {
