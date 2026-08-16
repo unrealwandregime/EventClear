@@ -92,6 +92,25 @@ async function mockApi(
       netAdvancesAtomic: "0",
       approvedRelationships: 1,
     });
+    if (path === "/markets") return json(route, {
+      fetchedAt: "2026-08-16T00:00:00.000Z",
+      data: [
+        {
+          conditionId: conditionOne,
+          marketId: "101",
+          question: "Will BTC be above $100K?",
+          endDate: "2026-12-31",
+          negativeRisk: false,
+          slug: "btc-above-100k",
+          yesPrice: 0.62,
+          noPrice: 0.38,
+          liquidity: 120000,
+          volume24h: 45000,
+          acceptingOrders: true,
+          source: "polymarket-gamma-live",
+        },
+      ],
+    });
     if (path === "/relationships") return json(route, { data: [{
       id: "BTC-LADDER",
       relationshipType: "CRYPTO_THRESHOLD_V1",
@@ -285,6 +304,25 @@ test("complete wallet, analysis, proof, quote and indexed opening lifecycle surv
   await expect(page.getByRole("button", { name: /0x0000/ })).toBeVisible();
   await page.getByRole("button", { name: "Bundles" }).click();
   await expect(page.getByText("indexer confirmed")).toBeVisible();
+});
+
+test("public research tools expose live markets and exact proof worlds without a wallet", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/");
+  await page.waitForFunction(() =>
+    document.documentElement.dataset.eventclearHydrated === "true"
+  );
+
+  await page.getByRole("button", { name: "Markets" }).click();
+  await expect(page.getByText("Will BTC be above $100K?")).toBeVisible();
+  await expect(page.getByText("62.0¢")).toBeVisible();
+
+  await page.getByRole("button", { name: "Proof lab" }).click();
+  await expect(page.getByText("100 pUSD", { exact: true })).toHaveCount(3);
+  const yesAmount = page.getByLabel("YES above $100K");
+  await yesAmount.fill("80");
+  await expect(page.getByText("80 pUSD", { exact: true })).toHaveCount(2);
+  await expect(page.getByText("180 pUSD", { exact: true })).toHaveCount(2);
 });
 
 test("wallet signature rejection is explicit", async ({ page }) => {

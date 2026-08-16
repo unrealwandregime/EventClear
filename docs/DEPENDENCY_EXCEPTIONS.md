@@ -6,16 +6,18 @@ advisories require a time-bounded entry in
 `config/security/dependency-exceptions.json`; expired or unlisted findings fail
 the build.
 
-## Active exception
+## Active exceptions
 
-`GHSA-mh99-v99m-4gvg` affects the transitive `brace-expansion` package used by
-ESLint tooling. Package: `brace-expansion` 1.1.16. Dependency type:
-development-only transitive dependency. Affected execution path:
-`eslint → minimatch → brace-expansion`; it is not part of the production bundle
-or runtime container. Temporary acceptance is limited to local/CI linting.
-Mitigation: lint only trusted repository patterns in isolated CI and upgrade
-the ESLint dependency graph as soon as a compatible patched release exists.
-Owner: protocol engineering. Expiration: 2026-08-31.
+Two development-only `image-size` advisories (`GHSA-w3rx-r6r6-pgpr` and
+`GHSA-5p2g-fcmc-qvqq`) are temporarily accepted until 2026-09-15. The package
+is used only by the vinext build tool and is absent from the production worker;
+builds process only trusted checked-in images. Both advisories name 2.0.3 as
+patched, but the registry currently publishes only through 2.0.2. Remove both
+exceptions immediately when 2.0.3 is published.
+
+All other current high-severity transitive findings are patched through
+workspace overrides. The former `brace-expansion` exception was removed on
+2026-08-16.
 
 The license gate rejects AGPL, GPL, SSPL, BUSL and Commons Clause dependency
 licenses. Any policy change requires an explicit legal review and a committed

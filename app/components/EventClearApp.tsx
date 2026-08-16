@@ -88,11 +88,26 @@ type PoolAccount = {
   allowlisted: boolean;
 };
 
+type MarketRecord = {
+  conditionId: string;
+  marketId: string;
+  question: string;
+  endDate?: string | null;
+  negativeRisk: boolean;
+  slug: string;
+  yesPrice?: number | null;
+  noPrice?: number | null;
+  liquidity: number;
+  volume24h: number;
+  acceptingOrders: boolean;
+  source: string;
+};
+
 const erc1155ReadAbi = parseAbi([
   "function isApprovedForAll(address account, address operator) view returns (bool)",
 ]);
 
-const navItems = ["Overview", "Scanner", "Bundles", "Claims", "Pool", "Registry"];
+const navItems = ["Overview", "Markets", "Proof lab", "Scanner", "Bundles", "Claims", "Pool", "Registry"];
 
 function parsePusdAtomic(value: string) {
   const [whole = "0", fraction = ""] = value.trim().split(".");
@@ -103,6 +118,16 @@ function parsePusdAtomic(value: string) {
     + BigInt(fraction.padEnd(6, "0") || "0");
   if (amount <= 0n) throw new Error("INVALID_PUSD_AMOUNT");
   return amount;
+}
+
+function formatUsd(value: number) {
+  if (!Number.isFinite(value)) return "—";
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "USD",
+    notation: value >= 1_000_000 ? "compact" : "standard",
+    maximumFractionDigits: value >= 1_000 ? 1 : 0,
+  }).format(value);
 }
 
 export function EventClearApp() {
@@ -125,6 +150,12 @@ export function EventClearApp() {
   const [withdrawAmount, setWithdrawAmount] = useState("0");
   const [claimAmounts, setClaimAmounts] = useState<Record<string, string>>({});
   const [poolAccount, setPoolAccount] = useState<PoolAccount | null>(null);
+  const [markets, setMarkets] = useState<MarketRecord[]>([]);
+  const [marketQuery, setMarketQuery] = useState("");
+  const [marketError, setMarketError] = useState("");
+  const [marketFetchedAt, setMarketFetchedAt] = useState("");
+  const [lowerYesAmount, setLowerYesAmount] = useState("100");
+  const [upperNoAmount, setUpperNoAmount] = useState("100");
   const [pusdBalance, setPusdBalance] = useState<string>();
   const [positionApproval, setPositionApproval] = useState<boolean>();
   const { stages, record } = usePersistentTransactions();
@@ -137,11 +168,47 @@ export function EventClearApp() {
     [relationships],
   );
 
+  const filteredMarkets = useMemo(() => {
+    const query = marketQuery.trim().toLowerCase();
+    if (!query) return markets;
+    return markets.filter((market) =>
+      market.question.toLowerCase().includes(query)
+      || market.marketId.toLowerCase().includes(query)
+      || market.conditionId.toLowerCase().includes(query)
+    );
+  }, [marketQuery, markets]);
+
+  const proof = useMemo(() => {
+    try {
+      const lower = parsePusdAtomic(lowerYesAmount);
+      const upper = parsePusdAtomic(upperNoAmount);
+      return {
+        lower,
+        upper,
+        worlds: [upper, lower + upper, lower],
+        floor: lower < upper ? lower : upper,
+        maximum: lower + upper,
+      };
+    } catch {
+      return null;
+    }
+  }, [lowerYesAmount, upperNoAmount]);
+
   useEffect(() => {
     document.documentElement.dataset.eventclearHydrated = "true";
     return () => {
       delete document.documentElement.dataset.eventclearHydrated;
     };
+  }, []);
+
+  useEffect(() => {
+    apiFetch<{ data: MarketRecord[]; fetchedAt?: string }>("/markets")
+      .then((result) => {
+        setMarkets(result.data);
+        setMarketFetchedAt(result.fetchedAt ?? "");
+        setMarketError("");
+      })
+      .catch(() => setMarketError("Live market data is temporarily unavailable."));
   }, []);
 
   useEffect(() => {
@@ -276,7 +343,7 @@ export function EventClearApp() {
   }, [stages, record]);
 
   async function connect() {
-    if (!config) return;
+    if (!config || !config.mainnetExecution) return;
     try {
       setMessage("Verify the chain and sign the SIWE session request.");
       const connected = await connectAndAuthenticate(config);
@@ -418,6 +485,7 @@ export function EventClearApp() {
           {navItems.map((item) => (
             <button
               key={item}
+              data-short={item === "Proof lab" ? "Proof" : item.slice(0, 5)}
               className={active === item ? "active" : ""}
               onClick={() => setActive(item)}
             >
@@ -436,10 +504,15 @@ export function EventClearApp() {
       <section className="main">
         <header className="topbar">
           <div className="breadcrumb">Protocol / {active}</div>
-          <button className="wallet" onClick={connect}>
+          <button
+            className="wallet"
+            onClick={connect}
+            disabled={!config?.mainnetExecution}
+            title={config?.mainnetExecution ? undefined : "Capital execution is disabled on this public release."}
+          >
             {wallet
               ? `${wallet.slice(0, 6)}…${wallet.slice(-4)} · ${capability?.walletType ?? "wallet"}`
-              : "Connect wallet + SIWE"}
+              : config?.mainnetExecution ? "Connect wallet + SIWE" : "Execution locked · read-only"}
           </button>
         </header>
 
@@ -486,7 +559,7 @@ export function EventClearApp() {
                 <div className="metric"><label>Guaranteed collateral</label><strong>{metrics?.available ? formatPusd(metrics.guaranteedFloorEscrowedAtomic) : "Unavailable"}</strong><small>verified pUSD principal</small></div>
                 <div className="metric"><label>Capital unlocked</label><strong>{metrics?.available ? formatPusd(metrics.netAdvancesAtomic) : "Unavailable"}</strong><small>verified net advances</small></div>
                 <div className="metric"><label>Active bundles</label><strong>{metrics?.available ? metrics.activeBundles : "Unavailable"}</strong><small>indexed protocol state</small></div>
-                <div className="metric"><label>Approved relationships</label><strong>{metrics?.available ? metrics.approvedRelationships : "Unavailable"}</strong><small>reviewed definitions</small></div>
+                <div className="metric"><label>Live public markets</label><strong>{markets.length || "Unavailable"}</strong><small>Polymarket discovery feed</small></div>
               </div>
               <section className="panel">
                 <div className="panel-head"><h2>Active bundles</h2><span>Verified indexed state only</span></div>
@@ -504,6 +577,105 @@ export function EventClearApp() {
                 </div>
               </section>
             </>
+          )}
+
+          {active === "Markets" && (
+            <section className="panel market-panel">
+              <div className="panel-head market-head">
+                <div>
+                  <h2>Live Polymarket market discovery</h2>
+                  <p>Read-only public data. A listing is not an EventClear relationship approval.</p>
+                </div>
+                <span>{marketFetchedAt ? `Updated ${new Date(marketFetchedAt).toLocaleTimeString()}` : "Loading live feed"}</span>
+              </div>
+              <div className="market-tools">
+                <label htmlFor="market-search">Search live markets</label>
+                <input
+                  id="market-search"
+                  type="search"
+                  placeholder="Question, market ID, or condition ID"
+                  value={marketQuery}
+                  onChange={(event) => setMarketQuery(event.target.value)}
+                />
+                <strong>{filteredMarkets.length} shown</strong>
+              </div>
+              {marketError && <p className="empty-state" role="status">{marketError}</p>}
+              {!marketError && markets.length === 0 && <p className="empty-state">Loading current markets…</p>}
+              <div className="market-list">
+                {filteredMarkets.map((market) => (
+                  <article className="market-row" key={market.conditionId}>
+                    <div className="market-question">
+                      <div className="market-badges">
+                        <span className={market.negativeRisk ? "market-badge caution" : "market-badge"}>
+                          {market.negativeRisk ? "Negative risk" : "Binary"}
+                        </span>
+                        <span className="market-id">#{market.marketId}</span>
+                      </div>
+                      <h3>{market.question}</h3>
+                      <small>Ends {market.endDate ? new Date(market.endDate).toLocaleDateString() : "not published"}</small>
+                    </div>
+                    <div className="market-stat"><label>Yes</label><strong>{market.yesPrice == null ? "—" : `${(market.yesPrice * 100).toFixed(1)}¢`}</strong></div>
+                    <div className="market-stat"><label>No</label><strong>{market.noPrice == null ? "—" : `${(market.noPrice * 100).toFixed(1)}¢`}</strong></div>
+                    <div className="market-stat"><label>24h volume</label><strong>{formatUsd(market.volume24h)}</strong></div>
+                    <div className="market-stat"><label>Liquidity</label><strong>{formatUsd(market.liquidity)}</strong></div>
+                    <a
+                      className="market-link"
+                      href={`https://polymarket.com/event/${encodeURIComponent(market.slug)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label={`Open ${market.question} on Polymarket`}
+                    >
+                      View source ↗
+                    </a>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {active === "Proof lab" && (
+            <section className="proof-layout">
+              <div className="panel proof-controls">
+                <div className="panel-head"><h2>Deterministic proof lab</h2><span>Runs locally · no wallet</span></div>
+                <div className="proof-copy">
+                  <p>
+                    Explore the canonical two-threshold example. Hold YES shares on
+                    “BTC above $100K” and NO shares on “BTC above $150K” for the same
+                    observation. Every possible terminal region is enumerated below.
+                  </p>
+                  <div className="proof-inputs">
+                    <label>
+                      <span>YES above $100K</span>
+                      <input type="number" min="0.000001" max="1000000" step="0.000001" value={lowerYesAmount} onChange={(event) => setLowerYesAmount(event.target.value)} />
+                      <small>shares</small>
+                    </label>
+                    <label>
+                      <span>NO above $150K</span>
+                      <input type="number" min="0.000001" max="1000000" step="0.000001" value={upperNoAmount} onChange={(event) => setUpperNoAmount(event.target.value)} />
+                      <small>shares</small>
+                    </label>
+                  </div>
+                  {!proof && <p className="proof-error" role="status">Enter two positive amounts with at most six decimal places.</p>}
+                </div>
+              </div>
+              <div className="panel proof-results" aria-live="polite">
+                <div className="panel-head"><h2>Exact terminal worlds</h2><span>Integer pUSD arithmetic</span></div>
+                <div className="proof-floor">
+                  <label>Guaranteed terminal floor</label>
+                  <strong>{proof ? formatPusd(proof.floor.toString()) : "—"} <small>pUSD</small></strong>
+                  <p>The minimum payout across every valid terminal region.</p>
+                </div>
+                <div className="proof-worlds">
+                  <div><span>BTC ≤ $100K</span><strong>{proof ? formatPusd(proof.worlds[0].toString()) : "—"} pUSD</strong></div>
+                  <div><span>$100K &lt; BTC ≤ $150K</span><strong>{proof ? formatPusd(proof.worlds[1].toString()) : "—"} pUSD</strong></div>
+                  <div><span>BTC &gt; $150K</span><strong>{proof ? formatPusd(proof.worlds[2].toString()) : "—"} pUSD</strong></div>
+                </div>
+                <div className="proof-summary">
+                  <span>Maximum payout</span><strong>{proof ? formatPusd(proof.maximum.toString()) : "—"} pUSD</strong>
+                </div>
+                <p className="proof-disclaimer">Educational proof preview only. It does not approve market rules or authorize capital.</p>
+              </div>
+            </section>
           )}
 
           {active === "Scanner" && (
