@@ -5,7 +5,7 @@ export const runtime = "edge";
 export async function GET() {
   try {
     const response = await fetch(
-      "https://gamma-api.polymarket.com/markets?active=true&closed=false&order=volume_24hr&ascending=false&limit=100",
+      "https://gamma-api.polymarket.com/markets?active=true&closed=false&order=volume24hr&ascending=false&limit=100",
       { headers: { accept: "application/json" }, signal: AbortSignal.timeout(8_000) },
     );
     if (!response.ok) throw new Error(`POLYMARKET_GAMMA_${response.status}`);
