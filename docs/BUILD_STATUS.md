@@ -1,5 +1,25 @@
 # EventClear Build Status
 
+## Zero-cost public research release — 2026-08-16
+
+The deployable public product now includes high-volume live Polymarket market
+discovery, search, source links and an interactive exact-integer proof lab for
+the canonical two-threshold collateral-compression example. It requires no
+wallet, account, paid database or paid runtime. Public wallet controls and all
+capital-write routes remain fail-closed.
+
+Local validation passed: TypeScript typecheck, ESLint, production build,
+server-rendered route tests, eight Playwright lifecycle tests, eight indexer
+tests, dependency policy and license policy. Current production high/critical
+dependency advisories: zero. Two time-bounded build-only `image-size`
+exceptions remain because the advisory's patched version is not yet published;
+the package is absent from the production worker.
+
+This is the final zero-cost deployment boundary. A real capital-bearing
+protocol release is not equivalent to a website release and still requires an
+independent audit, legal approval, protected signers/multisigs, funded gas and
+externally operated infrastructure.
+
 ## External staging completion attempt — 2026-07-28
 
 Baseline: default-branch commit
@@ -15,7 +35,7 @@ Baseline: default-branch commit
 | Legal approval complete | No |
 | Polygon-mainnet contracts deployed | No |
 | Public capital activated | No |
-| Public production-readonly site | Sites version 11 deployed from exact baseline; final branch refresh pending |
+| Public production-readonly site | Sites version 13 deployed from default-branch commit `876743d7177dfcf2f226c9c12b189bfcf50822ec`; anonymous verification passed |
 
 Completed safely before the external boundary: credential audit, AWS provider
 decision and setup commands, protected staging workflow, non-137 deployment

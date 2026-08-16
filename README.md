@@ -138,7 +138,14 @@ A bundle below principal becomes `SHORTFALL`; all proceeds go to principal and t
 
 ## Deployment
 
-The public production-readonly web is deployed through Sites. The selected
+The public production-readonly web is deployed through Sites at
+`https://eventclear-protocol.thecryptotom.chatgpt.site`. It provides a
+zero-cost live Polymarket discovery feed and an interactive deterministic proof
+lab that enumerates the canonical two-threshold terminal worlds without a
+wallet. The site deliberately keeps wallet authentication and every
+money-moving endpoint disabled.
+
+The selected
 external staging architecture is AWS ECS/Fargate with RDS PostgreSQL,
 ElastiCache Redis, private versioned S3 artifact storage, KMS signing,
 Secrets Manager and CloudWatch. See `docs/AWS_STAGING_SETUP.md`. No AWS staging

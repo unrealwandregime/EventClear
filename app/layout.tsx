@@ -18,14 +18,14 @@ export async function generateMetadata(): Promise<Metadata> {
     icons: { icon: "/favicon.svg" },
     openGraph: {
       title: "EventClear — Provable collateral compression",
-      description: "Unlock guaranteed value before markets resolve.",
-      images: [{ url: new URL("/og.png", baseUrl), width: 1729, height: 910, alt: "EventClear provable collateral compression payoff structure" }],
+      description: "Explore live prediction markets and reproduce exact terminal-world payout floors in a public read-only research release.",
+      images: [{ url: new URL("/og-research.png", baseUrl), width: 1728, height: 911, alt: "EventClear public read-only research release showing live markets, exact terminal-world enumeration, and a deterministic payout floor" }],
     },
     twitter: {
       card: "summary_large_image",
       title: "EventClear — Provable collateral compression",
-      description: "Unlock guaranteed value before markets resolve.",
-      images: [new URL("/og.png", baseUrl)],
+      description: "Explore live markets and exact deterministic payout-floor proofs in a public read-only research release.",
+      images: [new URL("/og-research.png", baseUrl)],
     },
   };
 }
