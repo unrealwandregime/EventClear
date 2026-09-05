@@ -1,5 +1,5 @@
-import { EventClearApp } from "./components/EventClearApp";
+import { InvestorHomepage } from "./components/InvestorHomepage";
 
 export default function Home() {
-  return <EventClearApp />;
+  return <InvestorHomepage />;
 }

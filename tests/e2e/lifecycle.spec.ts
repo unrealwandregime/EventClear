@@ -251,7 +251,7 @@ async function mockApi(
 }
 
 async function connectAndAnalyze(page: Page) {
-  await page.goto("/");
+  await page.goto("/app");
   await page.waitForFunction(() =>
     document.documentElement.dataset.eventclearHydrated === "true"
   );
@@ -309,26 +309,21 @@ test("complete wallet, analysis, proof, quote and indexed opening lifecycle surv
 test("public research tools expose live markets and exact proof worlds without a wallet", async ({ page }) => {
   await mockApi(page);
   await page.goto("/");
-  await page.waitForFunction(() =>
-    document.documentElement.dataset.eventclearHydrated === "true"
-  );
-
-  await page.getByRole("button", { name: "Markets" }).click();
+  await expect(page.getByRole("heading", { name: "Unlock guaranteed value before prediction markets resolve." })).toBeVisible();
   await expect(page.getByText("Will BTC be above $100K?")).toBeVisible();
   await expect(page.getByText("62.0¢")).toBeVisible();
 
-  await page.getByRole("button", { name: "Proof lab" }).click();
-  await expect(page.getByText("100 pUSD", { exact: true })).toHaveCount(3);
-  const yesAmount = page.getByLabel("YES above $100K");
-  await yesAmount.fill("80");
-  await expect(page.getByText("80 pUSD", { exact: true })).toHaveCount(2);
-  await expect(page.getByText("180 pUSD", { exact: true })).toHaveCount(2);
+  await expect(page.getByText("$1.00", { exact: true })).toHaveCount(4);
+  const yesAmount = page.getByLabel("YES shares · BTC > $100K");
+  await yesAmount.fill("0.8");
+  await expect(page.getByText("$0.80", { exact: true })).toHaveCount(2);
+  await expect(page.getByText("$1.80", { exact: true })).toBeVisible();
 });
 
 test("wallet signature rejection is explicit", async ({ page }) => {
   await installWallet(page, { rejectSignature: true });
   await mockApi(page);
-  await page.goto("/");
+  await page.goto("/app");
   await page.waitForFunction(() =>
     document.documentElement.dataset.eventclearHydrated === "true"
   );
@@ -341,7 +336,7 @@ test("wallet signature rejection is explicit", async ({ page }) => {
 test("wrong-chain failure is explicit", async ({ page }) => {
   await installWallet(page, { wrongChain: true });
   await mockApi(page);
-  await page.goto("/");
+  await page.goto("/app");
   await page.waitForFunction(() =>
     document.documentElement.dataset.eventclearHydrated === "true"
   );

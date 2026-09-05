@@ -1,5 +1,30 @@
 # EventClear Build Status
 
+## Investor-facing public release — 2026-09-05
+
+The public root experience is now an investor-facing product narrative rather
+than an operations dashboard. It leads with the collateral mechanism, a
+canonical $1 payout-floor walkthrough, live market discovery and an interactive
+terminal-world proof. The $1M target round is presented as funding the audit,
+external staging, controlled pilot liquidity and production/legal execution;
+no production traction or capital metrics are invented.
+
+The technical research interface remains available at `/app`. It now opens on
+live markets, labels capital execution as pre-launch, and exposes an empty
+read-only claims response instead of surfacing `API_405`. The public site also
+publishes explicit `robots.txt` and `sitemap.xml` routes.
+
+Validation passed: TypeScript typecheck, ESLint, production build, five
+server-rendered route/safety tests, eight Playwright lifecycle tests, dependency
+policy and license policy. Current production high/critical dependency
+advisories: zero. `fast-uri` was advanced to `3.1.6` after four new high-severity
+advisories were published. The two time-bounded, build-only `image-size`
+exceptions remain pending an upstream patched release.
+
+Public capital remains disabled. Independent audit, external staging,
+production signers/multisig and controlled pilot approval remain explicit
+release gates.
+
 ## Zero-cost public research release — 2026-08-16
 
 The deployable public product now includes high-volume live Polymarket market
