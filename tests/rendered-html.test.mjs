@@ -12,18 +12,45 @@ async function request(path = "/", init = { headers: { accept: "text/html" } }) 
   );
 }
 
-test("server-renders EventClear product content", async () => {
+test("server-renders the investor-facing EventClear product story", async () => {
   const response = await request();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
   const html = await response.text();
   assert.match(html, /<title>EventClear/);
-  assert.match(html, /Unlock guaranteed value before markets resolve/);
-  assert.match(html, /Public read-only alpha/);
-  assert.match(html, /Live Polymarket market and position data are available/);
-  assert.match(html, /public capital execution disabled/);
+  assert.match(html, /Unlock guaranteed value before prediction markets resolve/);
+  assert.match(html, /Live research release/);
+  assert.match(html, /Guaranteed terminal payout/);
+  assert.match(html, /Target round/);
+  assert.match(html, /Independent audit and controlled pilot are pending/);
+  assert.doesNotMatch(html, /API_405/);
+  assert.doesNotMatch(html, />Unavailable</);
+  assert.doesNotMatch(html, /No verified active bundle/);
   assert.doesNotMatch(html, /Mainnet candidate|Mainnet release candidate/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/);
+});
+
+test("server-renders the separate protocol application", async () => {
+  const response = await request("/app");
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /Live Polymarket market and position data are available/);
+  assert.match(html, /Capital pilot · pre-launch/);
+});
+
+test("public claims state is readable without producing an API 405", async () => {
+  const response = await request("/api/v1/claims");
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { data: [], source: "indexed", chainId: 137 });
+});
+
+test("public discovery metadata is available to crawlers", async () => {
+  const robots = await request("/robots.txt");
+  assert.equal(robots.status, 200);
+  assert.match(await robots.text(), /Allow: \//);
+  const sitemap = await request("/sitemap.xml");
+  assert.equal(sitemap.status, 200);
+  assert.match(await sitemap.text(), /eventclear-protocol\.thecryptotom\.chatgpt\.site/);
 });
 
 test("public deployment rejects every execution endpoint", async () => {

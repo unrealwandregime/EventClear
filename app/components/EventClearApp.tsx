@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
   decodeFunctionResult,
   encodeFunctionData,
@@ -131,7 +132,7 @@ function formatUsd(value: number) {
 }
 
 export function EventClearApp() {
-  const [active, setActive] = useState("Overview");
+  const [active, setActive] = useState("Markets");
   const [wallet, setWallet] = useState<Hex | "">("");
   const [session, setSession] = useState("");
   const [config, setConfig] = useState<PublicConfig | null>(null);
@@ -480,7 +481,7 @@ export function EventClearApp() {
   return (
     <main className="shell">
       <aside className="sidebar">
-        <div className="brand"><i className="brandmark" /><span>EventClear</span></div>
+        <Link className="brand" href="/" aria-label="Back to EventClear investor site"><i className="brandmark" /><span>EventClear</span></Link>
         <nav className="nav" aria-label="Primary navigation">
           {navItems.map((item) => (
             <button
@@ -494,9 +495,9 @@ export function EventClearApp() {
           ))}
         </nav>
         <div className="notice">
-          <b>Public read-only alpha</b>
+          <b>Live research release</b>
           Live Polymarket market and position data are available. EventClear
-          capital execution remains disabled pending security review,
+          capital execution launches after security review,
           production infrastructure, multisig activation and controlled pilot approval.
         </div>
       </aside>
@@ -512,16 +513,15 @@ export function EventClearApp() {
           >
             {wallet
               ? `${wallet.slice(0, 6)}…${wallet.slice(-4)} · ${capability?.walletType ?? "wallet"}`
-              : config?.mainnetExecution ? "Connect wallet + SIWE" : "Execution locked · read-only"}
+              : config?.mainnetExecution ? "Connect wallet + SIWE" : "Capital pilot · pre-launch"}
           </button>
         </header>
 
         <div className="content">
           <div className="release-strip">
-            <span><i /> Public read-only alpha</span>
+            <span><i /> Live research release</span>
             <b>
-              Standard binary markets only · public capital execution disabled
-              · No public capital activated
+              Live market discovery & collateral proofs · capital execution launching after audit
             </b>
           </div>
           {wallet && config && (
@@ -556,10 +556,10 @@ export function EventClearApp() {
                 </section>
               </div>
               <div className="metric-grid">
-                <div className="metric"><label>Guaranteed collateral</label><strong>{metrics?.available ? formatPusd(metrics.guaranteedFloorEscrowedAtomic) : "Unavailable"}</strong><small>verified pUSD principal</small></div>
-                <div className="metric"><label>Capital unlocked</label><strong>{metrics?.available ? formatPusd(metrics.netAdvancesAtomic) : "Unavailable"}</strong><small>verified net advances</small></div>
-                <div className="metric"><label>Active bundles</label><strong>{metrics?.available ? metrics.activeBundles : "Unavailable"}</strong><small>indexed protocol state</small></div>
-                <div className="metric"><label>Live public markets</label><strong>{markets.length || "Unavailable"}</strong><small>Polymarket discovery feed</small></div>
+                <div className="metric"><label>Guaranteed collateral</label><strong>{metrics?.available ? formatPusd(metrics.guaranteedFloorEscrowedAtomic) : "Pre-launch"}</strong><small>capital pilot pending audit</small></div>
+                <div className="metric"><label>Capital unlocked</label><strong>{metrics?.available ? formatPusd(metrics.netAdvancesAtomic) : "Pre-launch"}</strong><small>capital pilot pending audit</small></div>
+                <div className="metric"><label>Active bundles</label><strong>{metrics?.available ? metrics.activeBundles : "Pre-launch"}</strong><small>controlled pilot not started</small></div>
+                <div className="metric"><label>Live public markets</label><strong>{markets.length || "Loading"}</strong><small>Polymarket discovery feed</small></div>
               </div>
               <section className="panel">
                 <div className="panel-head"><h2>Active bundles</h2><span>Verified indexed state only</span></div>
@@ -572,7 +572,7 @@ export function EventClearApp() {
                     </div>
                   ))}
                   {!bundles.some((item) => item.status === "ACTIVE") && (
-                    <div className="world-row"><span>No verified active bundle</span><span>—</span><span>Unavailable</span></div>
+                    <div className="world-row"><span>Controlled capital pilot</span><span>Pending audit</span><span>Pre-launch</span></div>
                   )}
                 </div>
               </section>
