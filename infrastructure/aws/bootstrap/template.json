@@ -240,7 +240,14 @@
                     "s3:GetObject",
                     "s3:PutObject"
                   ],
-                  "Resource": "*",
+                  "Resource": [
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:s3:::eventclear-staging*"
+                    },
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:s3:::eventclear-staging*/*"
+                    }
+                  ],
                   "Condition": {
                     "StringEquals": {
                       "s3:ResourceAccount": {
