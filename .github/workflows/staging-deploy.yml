@@ -30,7 +30,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   protected-environment:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       deployments: read
@@ -46,7 +46,7 @@ jobs:
           test "$master" = true
   operate:
     needs: protected-environment
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: staging
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
