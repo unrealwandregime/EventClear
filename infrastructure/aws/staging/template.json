@@ -789,7 +789,6 @@
     "StorageEncrypted": true,
     "DBName": "eventclear",
     "MasterUsername": "eventclear",
-    "ManageMasterUserPassword": true,
     "PubliclyAccessible": false,
     "MultiAZ": false,
     "BackupRetentionPeriod": 7,
@@ -804,7 +803,10 @@
     "DeletionProtection": false,
     "EnableCloudwatchLogsExports": [
      "postgresql"
-    ]
+    ],
+    "MasterUserPassword": {
+     "Fn::Sub": "{{resolve:secretsmanager:${DatabaseSecret}:SecretString:password}}"
+    }
    },
    "DeletionPolicy": "Snapshot",
    "UpdateReplacePolicy": "Snapshot"
@@ -1071,10 +1073,7 @@
            "Ref": "RedisAuth"
           },
           {
-           "Fn::GetAtt": [
-            "Database",
-            "MasterUserSecret.SecretArn"
-           ]
+           "Ref": "DatabaseSecret"
           }
          ]
         }
@@ -1771,6 +1770,20 @@
      }
     ]
    }
+  },
+  "DatabaseSecret": {
+   "Type": "AWS::SecretsManager::Secret",
+   "Properties": {
+    "Name": {
+     "Fn::Sub": "${AWS::StackName}-database"
+    },
+    "GenerateSecretString": {
+     "SecretStringTemplate": "{\"username\":\"eventclear\"}",
+     "GenerateStringKey": "password",
+     "PasswordLength": 48,
+     "ExcludePunctuation": true
+    }
+   }
   }
  },
  "Outputs": {
@@ -1817,10 +1830,7 @@
   },
   "DatabaseSecretArn": {
    "Value": {
-    "Fn::GetAtt": [
-     "Database",
-     "MasterUserSecret.SecretArn"
-    ]
+    "Ref": "DatabaseSecret"
    }
   },
   "DatabaseEndpoint": {
