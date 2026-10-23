@@ -7,6 +7,7 @@ export type EthereumProvider = {
 export type PublicConfig = {
   chainId: number;
   mainnetExecution: boolean;
+  executionEnabled?: boolean;
   environment: string;
   dataSource: string;
   executionStatus: string;

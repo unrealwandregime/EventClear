@@ -36,9 +36,24 @@ contract DeployStaging is Script {
         uint256 perMarketExposure = vm.envUint("STAGING_PER_MARKET_EXPOSURE");
         uint256 perRelationshipExposure = vm.envUint("STAGING_PER_RELATIONSHIP_EXPOSURE");
         uint256 globalExposure = vm.envUint("STAGING_GLOBAL_EXPOSURE");
+        for (uint32 i; i < 20; ++i) {
+            require(
+                deployerKey != vm.deriveKey("test test test test test test test test test test test junk", i),
+                "development key prohibited"
+            );
+        }
+        require(
+            deployerKey != 0x59c6995e998f97a5a0044976f0945389dc9e86dae88c7a8412f4603b6b78690d,
+            "published local key prohibited"
+        );
         address deployer = vm.addr(deployerKey);
         require(block.chainid == expectedChainId, "unexpected staging chain");
-        require(block.chainid != 137, "polygon mainnet prohibited");
+        require(
+            block.chainid != 137 && block.chainid != 1 && block.chainid != 31337 && block.chainid != 1337,
+            "persistent test chain required"
+        );
+        require(vm.envBool("STAGING_TEST_ASSETS_ONLY"), "test assets required");
+        require(!vm.envBool("ENABLE_MAINNET_EXECUTION"), "mainnet execution prohibited");
         require(admin != address(0) && admin != deployer, "separate staging admin required");
         require(riskSigner != address(0) && lp != address(0) && tester != address(0), "staging address missing");
         require(relationshipHash != bytes32(0) && rulesHash != bytes32(0), "staging hash missing");
@@ -80,10 +95,14 @@ contract DeployStaging is Script {
         pool.setRiskLimits(uint16(utilizationCapBps), uint16(minimumReserveBps));
         registry.register(relationshipHash, 1, uint64(block.timestamp), 0, earliest, latest, rulesHash);
         collateral.mint(lp, 25_000e6);
-        conditionalTokens.createPosition(keccak256("staging-lower"), 1, 2);
-        conditionalTokens.createPosition(keccak256("staging-upper"), 3, 4);
-        conditionalTokens.mint(tester, 1, 1_000e6);
-        conditionalTokens.mint(tester, 4, 1_000e6);
+        conditionalTokens.createPosition(
+            bytes32(uint256(0x1111111111111111111111111111111111111111111111111111111111111111)), 1, 2
+        );
+        conditionalTokens.createPosition(
+            bytes32(uint256(0x2222222222222222222222222222222222222222222222222222222222222222)), 3, 4
+        );
+        conditionalTokens.mint(tester, 1, 100e6);
+        conditionalTokens.mint(tester, 4, 100e6);
 
         registry.grantRole(registry.DEFAULT_ADMIN_ROLE(), admin);
         registry.grantRole(registry.REVIEWER_ROLE(), admin);

@@ -11,6 +11,13 @@ import pg from "pg";
 import { pathToFileURL } from "node:url";
 import { rebuildProjection, type IndexedEvent } from "./projection.js";
 
+function stagingMetric(name: string, value: number) {
+  if (process.env.EVENTCLEAR_MODE !== "staging") return;
+  const stack = process.env.STAGING_STACK_NAME;
+  if (!stack) throw new Error("STAGING_METRIC_DIMENSION_REQUIRED");
+  console.log(JSON.stringify({ _aws: { Timestamp: Date.now(), CloudWatchMetrics: [{ Namespace: "EventClear/Staging", Dimensions: [["Stack"]], Metrics: [{ Name: name, Unit: "Count" }] }] }, Stack: stack, [name]: value }));
+}
+
 const confirmations = BigInt(process.env.INDEXER_CONFIRMATIONS ?? "64");
 const chainId = Number(process.env.CHAIN_ID ?? "137");
 const rpcUrls = (process.env.POLYGON_RPC_URLS ?? "").split(",").map((value) => value.trim()).filter(Boolean);
@@ -73,6 +80,7 @@ async function withRpc<T>(operation: (client: ReturnType<typeof rpcClient>) => P
       );
       return result;
     } catch (error) {
+      stagingMetric("RpcFailures", 1);
       lastError = error;
       await pool.query(
         "INSERT INTO rpc_health(rpc_url_hash,chain_id,latency_ms,healthy,error_code,observed_at) VALUES(md5($1),$2,$3,false,$4,now())",
@@ -276,7 +284,9 @@ async function run() {
   for (;;) {
     const from = (await ensureCanonicalCheckpoint()) + 1n;
     const head = await safeHead();
+    stagingMetric("IndexerLag", Number(head >= from ? head - from + 1n : 0n));
     if (from <= head) await indexRange(from, head);
+    stagingMetric("IndexerLag", 0);
     await new Promise((resolve) => setTimeout(resolve, 4_000));
   }
 }
@@ -309,7 +319,12 @@ async function status() {
 
 export async function main(args = process.argv.slice(2)) {
   const command = args[0] ?? "run";
-  if (command === "run") await run();
+  if (command === "health") {
+    const stored = await checkpoint();
+    const head = await safeHead();
+    if (!stored || head - stored.blockNumber > 20n) throw new Error("INDEXER_LAG");
+    console.log("Indexer checkpoint healthy");
+  } else if (command === "run") await run();
   else if (command === "backfill") {
     const fromFlag = args.indexOf("--from-block");
     const from = BigInt(fromFlag >= 0 ? args[fromFlag + 1] : "0");
@@ -321,5 +336,5 @@ export async function main(args = process.argv.slice(2)) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  await main();
+  try { await main(); } catch { stagingMetric("TaskCrash", 1); throw new Error("INDEXER_OPERATION_FAILED"); }
 }

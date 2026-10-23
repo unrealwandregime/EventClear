@@ -28,7 +28,7 @@ from eth_account import Account
 from eth_account.messages import encode_defunct
 
 from eventclear_solver.engine import solve
-from eventclear_solver.models import ProofArtifact, SolverRequest
+from eventclear_solver.models import ProofArtifact, SolverRequest, SolverResult
 
 from .calldata import (
     deposit,
@@ -49,6 +49,7 @@ from .quote import issue_quote
 from .repository import create_store
 from .seed import POSITIONS
 from .settings import Settings
+from .telemetry import emit
 from .transaction_models import (
     AmountRequest,
     OpenBundleRequest,
@@ -73,6 +74,13 @@ polymarket = PolymarketReadGateway(
     settings.polygon_rpc_urls,
     freshness_seconds=settings.market_freshness_seconds,
 )
+if settings.normalized_mode == "staging":
+    from .staging import StagingGateway, load_fixture, initialize_fixture
+
+    staging_fixture = load_fixture(settings)
+    initialize_fixture(store, staging_fixture)
+    polymarket = StagingGateway(settings, staging_fixture)
+
 REQUESTS = Counter(
     "eventclear_api_requests_total", "API requests", ["method", "path", "status"]
 )
@@ -119,6 +127,17 @@ app = FastAPI(title="EventClear API", version="1.0.0", lifespan=lifespan)
 
 @app.middleware("http")
 async def controls(request: Request, call_next):
+    if settings.normalized_mode == "staging" and request.url.path not in {
+        "/api/v1/health",
+        "/api/v1/readiness",
+    }:
+        supplied = request.headers.get("x-staging-access", "")
+        if not settings.staging_access_token or not hmac.compare_digest(
+            supplied, settings.staging_access_token
+        ):
+            return JSONResponse(
+                status_code=403, content={"detail": {"code": "STAGING_ACCESS_REQUIRED"}}
+            )
     started = time.monotonic()
     correlation_id = request.headers.get("x-correlation-id", str(uuid.uuid4()))
     request.state.correlation_id = correlation_id
@@ -173,6 +192,26 @@ async def controls(request: Request, call_next):
     response.headers["content-security-policy"] = "default-src 'self'"
     REQUESTS.labels(request.method, request.url.path, response.status_code).inc()
     LATENCY.labels(request.url.path).observe(time.monotonic() - started)
+    if settings.normalized_mode == "staging":
+        emit(
+            ApiRequests=1,
+            Api5xx=int(response.status_code >= 500),
+            ApiLatency=(time.monotonic() - started) * 1000,
+            SettlementFailures=int(
+                "settlement" in request.url.path and response.status_code >= 400
+            ),
+        )
+        if request.url.path == "/api/v1/pool":
+            state = store.get_pool_state() or {}
+            emit(
+                ActiveBundles=sum(
+                    b.get("status") == "ACTIVE" for b in store.list_bundles()
+                ),
+                PoolUtilization=float(state.get("utilizationBps", 0)),
+                Shortfalls=sum(
+                    b.get("status") == "SHORTFALL" for b in store.list_bundles()
+                ),
+            )
     return response
 
 
@@ -381,7 +420,11 @@ def public_config():
         "conditionalTokensAddress": settings.conditional_tokens_address,
         "siweDomain": settings.siwe_domain,
         "siweUri": settings.siwe_uri,
-        "mainnetExecution": settings.execution_enabled,
+        "mainnetExecution": settings.normalized_mode == "production-controlled"
+        and settings.chain_id == 137
+        and settings.execution_enabled,
+        "executionEnabled": settings.execution_enabled,
+        "publicCapitalActivated": False,
         "dataSource": "seeded"
         if settings.normalized_mode in {"local", "test"}
         else "live",
@@ -643,6 +686,16 @@ async def wallet_capabilities(address: str):
 
 @app.get("/api/v1/wallets/{address}/eligible-bundles")
 def eligible(address: str):
+    if settings.normalized_mode == "staging":
+        return {
+            "accountWallet": address,
+            "candidates": [
+                {"relationshipId": r["id"], "status": "ELIGIBLE"}
+                for r in store.list_relationships()
+                if r["status"] == "APPROVED"
+            ],
+            "source": "staging-test-assets",
+        }
     if settings.normalized_mode not in {"local", "test"}:
         return {
             "accountWallet": address,
@@ -665,6 +718,8 @@ def eligible(address: str):
 
 @app.get("/api/v1/wallets/{address}/opportunities")
 def opportunities(address: str):
+    if settings.normalized_mode == "staging":
+        return eligible(address)
     if settings.normalized_mode not in {"local", "test"}:
         return {
             "positionWallet": address,
@@ -707,6 +762,18 @@ def create_analysis(payload: dict, current: dict = Depends(authenticated_session
         }
     )
     result = solve(request)
+    if settings.normalized_mode == "staging":
+        import httpx
+
+        with httpx.Client(timeout=15) as client:
+            remote = client.post(
+                f"{settings.solver_url}/solve", json=request.model_dump(mode="json")
+            )
+            remote.raise_for_status()
+        remote_result = SolverResult.model_validate(remote.json())
+        if solve(request, timestamp=remote_result.generatedAt) != remote_result:
+            raise HTTPException(503, detail={"code": "REMOTE_SOLVER_MISMATCH"})
+        result = remote_result
     if not result.financingEligible:
         raise HTTPException(
             422,
@@ -1502,3 +1569,30 @@ def protocol_events():
 @app.get("/metrics")
 def metrics():
     return PlainTextResponse(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
+@app.get("/api/v1/staging/operations")
+def staging_operations(current: dict = Depends(authenticated_session)):
+    if settings.normalized_mode != "staging":
+        raise HTTPException(404)
+    with store._connection() as connection:
+        row = connection.execute(
+            "SELECT block_number, block_hash FROM indexer_checkpoints WHERE chain_id=%s",
+            (settings.chain_id,),
+        ).fetchone()
+        duplicates = connection.execute(
+            "SELECT count(*) FROM (SELECT transaction_hash, log_index FROM chain_events WHERE chain_id=%s AND removed=false GROUP BY transaction_hash, log_index HAVING count(*)>1) duplicated",
+            (settings.chain_id,),
+        ).fetchone()[0]
+        events = connection.execute(
+            "SELECT count(*) FROM chain_events WHERE chain_id=%s AND removed=false",
+            (settings.chain_id,),
+        ).fetchone()[0]
+    if row is None:
+        raise HTTPException(503, detail={"code": "INDEXER_CHECKPOINT_MISSING"})
+    return {
+        "checkpoint": str(row[0]),
+        "blockHash": row[1],
+        "indexedEvents": events,
+        "duplicateEvents": duplicates,
+    }

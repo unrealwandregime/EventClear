@@ -1,0 +1,12 @@
+{
+  "11155111": {
+    "name": "Ethereum Sepolia",
+    "officialInformation": "https://ethereum.org/en/developers/docs/networks/",
+    "requiredText": "Sepolia"
+  },
+  "80002": {
+    "name": "Polygon Amoy",
+    "officialInformation": "https://docs.polygon.technology/pos/reference/rpc-endpoints/",
+    "requiredText": "80002"
+  }
+}

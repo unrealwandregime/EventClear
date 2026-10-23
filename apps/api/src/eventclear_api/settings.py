@@ -28,6 +28,11 @@ CONTROLLED_PRODUCTION_GATES = (
 
 @dataclass(frozen=True)
 class Settings:
+    staging_access_token: str = os.getenv("STAGING_ACCESS_TOKEN", "")
+    staging_fixture_path: str = os.getenv(
+        "STAGING_FIXTURE_PATH", "config/staging/deployed.json"
+    )
+    solver_url: str = os.getenv("SOLVER_URL", "")
     mode: str = os.getenv("EVENTCLEAR_MODE", "local")
     store_backend: str = os.getenv("EVENTCLEAR_STORE", "memory")
     database_url: str = os.getenv("DATABASE_URL", "")
@@ -232,6 +237,20 @@ class Settings:
                 raise RuntimeError(f"MAINNET_SAFETY_GATE_FAILED:{','.join(missing)}")
         if self.normalized_mode == "staging":
             missing = []
+            if self.chain_id in {1, 137, 31337, 1337}:
+                missing.append("PERSISTENT_TEST_CHAIN_REQUIRED")
+            if os.getenv("STAGING_TEST_ASSETS_ONLY") != "true":
+                missing.append("STAGING_TEST_ASSETS_ONLY")
+            if os.getenv("ENABLE_MAINNET_EXECUTION") == "true":
+                missing.append("MAINNET_EXECUTION_PROHIBITED")
+            if len(self.staging_access_token) < 32:
+                missing.append("STAGING_ACCESS_TOKEN")
+            if self.signer_backend != "kms":
+                missing.append("RISK_SIGNER_BACKEND=kms")
+            if not self.redis_url.startswith("rediss://"):
+                missing.append("REDIS_TLS_REQUIRED")
+            if not self.solver_url.startswith("http://solver."):
+                missing.append("PRIVATE_SOLVER_REQUIRED")
             if self.chain_id == 137:
                 missing.append("STAGING_CHAIN_MUST_NOT_BE_POLYGON_MAINNET")
             if self.store_backend != "postgres":

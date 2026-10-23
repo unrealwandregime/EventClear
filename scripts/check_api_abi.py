@@ -71,8 +71,11 @@ def _constant_sequences(tree: ast.AST) -> dict[str, tuple[str, ...]]:
 def _target_name(node: ast.AST) -> str | None:
     if (
         isinstance(node, ast.Attribute)
-        and isinstance(node.value, ast.Name)
-        and node.value.id == "settings"
+        and (
+            (isinstance(node.value, ast.Name) and node.value.id == "settings")
+            or (isinstance(node.value, ast.Attribute) and node.value.attr == "settings"
+                and isinstance(node.value.value, ast.Name) and node.value.value.id == "self")
+        )
     ):
         return node.attr
     return None

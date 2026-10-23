@@ -344,7 +344,7 @@ export function EventClearApp() {
   }, [stages, record]);
 
   async function connect() {
-    if (!config || !config.mainnetExecution) return;
+    if (!config || !(config.executionEnabled ?? config.mainnetExecution)) return;
     try {
       setMessage("Verify the chain and sign the SIWE session request.");
       const connected = await connectAndAuthenticate(config);
@@ -508,12 +508,12 @@ export function EventClearApp() {
           <button
             className="wallet"
             onClick={connect}
-            disabled={!config?.mainnetExecution}
-            title={config?.mainnetExecution ? undefined : "Capital execution is disabled on this public release."}
+            disabled={!(config?.executionEnabled ?? config?.mainnetExecution)}
+            title={(config?.executionEnabled ?? config?.mainnetExecution) ? undefined : "Capital execution is disabled on this public release."}
           >
             {wallet
               ? `${wallet.slice(0, 6)}…${wallet.slice(-4)} · ${capability?.walletType ?? "wallet"}`
-              : config?.mainnetExecution ? "Connect wallet + SIWE" : "Capital pilot · pre-launch"}
+              : (config?.executionEnabled ?? config?.mainnetExecution) ? "Connect wallet + SIWE" : "Capital pilot · pre-launch"}
           </button>
         </header>
 
@@ -709,7 +709,7 @@ export function EventClearApp() {
                     <span>{formatPusd(item.grossAdvanceAtomic)} pUSD</span>
                     <button
                       className="ghost"
-                      disabled={!session || !item.conditionsResolved || !config?.mainnetExecution}
+                      disabled={!session || !item.conditionsResolved || !(config?.executionEnabled ?? config?.mainnetExecution)}
                       onClick={() => executePrepared(
                         `/bundles/${item.id}/prepare-settlement`,
                         {},
@@ -747,7 +747,7 @@ export function EventClearApp() {
                       />
                       <button
                         className="ghost"
-                        disabled={!session || !claim.holderBalanceAtomic || !config?.mainnetExecution}
+                        disabled={!session || !claim.holderBalanceAtomic || !(config?.executionEnabled ?? config?.mainnetExecution)}
                         onClick={() => executePrepared(
                           `/claims/${claim.tokenId}/prepare-redemption`,
                           {
@@ -794,10 +794,10 @@ export function EventClearApp() {
                   </div>
                   <button
                     className="analyze wide"
-                    disabled={!wallet || !session || !config?.mainnetExecution}
+                    disabled={!wallet || !session || !(config?.executionEnabled ?? config?.mainnetExecution)}
                     onClick={depositOnchain}
                   >
-                    {config?.mainnetExecution ? "Approve and deposit" : "Read-only"}
+                    {(config?.executionEnabled ?? config?.mainnetExecution) ? "Approve and deposit" : "Read-only"}
                   </button>
                   <hr />
                   <label className="input-label">Available withdrawal</label>
@@ -812,7 +812,7 @@ export function EventClearApp() {
                     disabled={
                       !wallet
                       || !session
-                      || !config?.mainnetExecution
+                      || !(config?.executionEnabled ?? config?.mainnetExecution)
                       || !poolAccount?.availableWithdrawalAtomic
                     }
                     onClick={() => {
@@ -833,7 +833,7 @@ export function EventClearApp() {
                       }
                     }}
                   >
-                    {config?.mainnetExecution ? "Withdraw available assets" : "Read-only"}
+                    {(config?.executionEnabled ?? config?.mainnetExecution) ? "Withdraw available assets" : "Read-only"}
                   </button>
                   <small className="form-note">
                     LP shares: {poolAccount?.sharesAtomic ?? "Unavailable"} ·{" "}

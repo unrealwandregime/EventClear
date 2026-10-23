@@ -547,7 +547,9 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertEqual(body["chainId"], 31337)
-        self.assertTrue(body["mainnetExecution"])
+        self.assertTrue(body["executionEnabled"])
+        self.assertFalse(body["mainnetExecution"])
+        self.assertFalse(body["publicCapitalActivated"])
         self.assertIn("fundingPoolAddress", body)
         self.assertNotIn("adminApiToken", body)
 

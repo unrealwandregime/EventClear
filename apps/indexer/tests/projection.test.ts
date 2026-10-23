@@ -137,3 +137,13 @@ test("multi-contract event ordering is block then log index", () => {
     [8, 2, 9],
   );
 });
+
+test("claim burns reduce indexed supply and holder balance after redemption", () => {
+  const state = emptyProjection();
+  applyIndexedEvent(state, event("ClaimsMinted", { bundleId: "1", principalSupply: "100", residualSupply: "1000" }));
+  const claim = [...state.claims.values()].find(c => c.claimType === "RESIDUAL")!;
+  applyIndexedEvent(state, event("TransferSingle", { from: "0x0000000000000000000000000000000000000000", to: "0xabc", id: claim.tokenId, value: "1000" }, { logIndex: 1 }));
+  applyIndexedEvent(state, event("TransferSingle", { from: "0xabc", to: "0x0000000000000000000000000000000000000000", id: claim.tokenId, value: "1000" }, { logIndex: 2 }));
+  assert.equal(claim.supplyAtomic, "0");
+  assert.equal((claim.balances as Record<string, string>)["0xabc"], "0");
+});

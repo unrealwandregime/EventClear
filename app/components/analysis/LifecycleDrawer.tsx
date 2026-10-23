@@ -209,8 +209,8 @@ export function LifecycleDrawer({
             <button className="ghost" onClick={downloadArtifact}>Download proof artifact</button>
             <button className="ghost" onClick={verifyArtifact}>Verify proof artifact</button>
             {!quote && (
-              <button className="analyze" disabled={!config.mainnetExecution} onClick={requestQuote}>
-                {config.mainnetExecution ? "Request live quote" : "Execution read-only"}
+              <button className="analyze" disabled={!(config.executionEnabled ?? config.mainnetExecution)} onClick={requestQuote}>
+                {(config.executionEnabled ?? config.mainnetExecution) ? "Request live quote" : "Execution read-only"}
               </button>
             )}
           </div>
