@@ -1,3 +1,9 @@
+# Current audit — 2026-10-23
+
+See `BUILD_STATUS.md` for canonical current acceptance. Baseline matches the requested SHA. No newer default-branch commits were present. External staging evidence remains unexecuted. The deployment workflow assumes existing ECS services/task definitions; no CloudFormation stack exists; migrations currently rerun non-idempotent DDL; API images omit manifests; remote lifecycle and controlled access need implementation.
+
+## Historical audits
+
 # EventClear Current-State Audit
 
 ## External access update — 2026-07-28

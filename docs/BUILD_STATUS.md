@@ -1,5 +1,18 @@
 # EventClear Build Status
 
+## Current prototype sprint — 2026-10-23
+
+Canonical current state; sections below are historical evidence, not current acceptance.
+Baseline: `2b1bf147d348df62954f6f3ff229179ff0e28960`.
+
+- External staging: NOT DEPLOYED. Remote lifecycle, restart, rollback and SNS delivery: NOT RUN.
+- Fresh local baseline: 51 Python tests passed, two integration cases skipped in the unit run; 35 Solidity tests and eight indexer tests passed; TypeScript passed.
+- Public product remains production-readonly. Mainnet and public capital remain disabled.
+- Historical CI/browser/fork results below remain historical; current remote CI has not been read because GitHub API access is denied.
+- Scope: reproducible AWS bootstrap, controlled non-mainnet deployment and remote acceptance automation. External audit/legal review are later capital-release requirements, not test-asset staging blockers.
+
+## Historical build record
+
 ## Investor-facing public release — 2026-09-05
 
 The public root experience is now an investor-facing product narrative rather
