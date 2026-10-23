@@ -1,18 +1,3 @@
 {
-  "exceptions": [
-    {
-      "advisoryId": "GHSA-w3rx-r6r6-pgpr",
-      "scope": "development-only",
-      "expires": "2026-09-15",
-      "owner": "protocol-engineering",
-      "reason": "The affected image-size parser is a vinext build-time dependency and is not shipped in the production worker. The advisory names 2.0.3 as patched, but the registry currently publishes only through 2.0.2. Builds process only trusted repository images. Remove immediately when 2.0.3 is published."
-    },
-    {
-      "advisoryId": "GHSA-5p2g-fcmc-qvqq",
-      "scope": "development-only",
-      "expires": "2026-09-15",
-      "owner": "protocol-engineering",
-      "reason": "The affected image-size parser is a vinext build-time dependency and is not shipped in the production worker. The advisory names 2.0.3 as patched, but the registry currently publishes only through 2.0.2. Builds process only trusted repository images. Remove immediately when 2.0.3 is published."
-    }
-  ]
+  "exceptions": []
 }
