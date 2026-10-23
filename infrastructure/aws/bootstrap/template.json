@@ -1,0 +1,528 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "EventClear one-time GitHub staging OIDC bootstrap; no permanent access keys",
+  "Parameters": {
+    "ExistingOidcProviderArn": {
+      "Type": "String",
+      "Default": ""
+    }
+  },
+  "Conditions": {
+    "CreateProvider": {
+      "Fn::Equals": [
+        {
+          "Ref": "ExistingOidcProviderArn"
+        },
+        ""
+      ]
+    }
+  },
+  "Resources": {
+    "GithubOidc": {
+      "Type": "AWS::IAM::OIDCProvider",
+      "Condition": "CreateProvider",
+      "Properties": {
+        "Url": "https://token.actions.githubusercontent.com",
+        "ClientIdList": [
+          "sts.amazonaws.com"
+        ]
+      }
+    },
+    "DeployRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": "eventclear-staging-deploy",
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Federated": {
+                  "Fn::If": [
+                    "CreateProvider",
+                    {
+                      "Ref": "GithubOidc"
+                    },
+                    {
+                      "Ref": "ExistingOidcProviderArn"
+                    }
+                  ]
+                }
+              },
+              "Action": "sts:AssumeRoleWithWebIdentity",
+              "Condition": {
+                "StringEquals": {
+                  "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+                  "token.actions.githubusercontent.com:sub": "repo:unrealwandregime/EventClear:environment:staging"
+                }
+              }
+            }
+          ]
+        },
+        "MaxSessionDuration": 3600,
+        "Policies": [
+          {
+            "PolicyName": "staging-stack-management",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "cloudformation:CreateStack",
+                    "cloudformation:UpdateStack",
+                    "cloudformation:DeleteStack",
+                    "cloudformation:DescribeStacks",
+                    "cloudformation:DescribeStackEvents",
+                    "cloudformation:DescribeStackResources",
+                    "cloudformation:GetTemplate",
+                    "cloudformation:CreateChangeSet",
+                    "cloudformation:DescribeChangeSet",
+                    "cloudformation:ExecuteChangeSet",
+                    "cloudformation:DeleteChangeSet"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/eventclear-staging*/*"
+                  }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "cloudformation:ValidateTemplate",
+                    "sts:GetCallerIdentity",
+                    "ecr:GetAuthorizationToken"
+                  ],
+                  "Resource": "*"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "iam:PassRole"
+                  ],
+                  "Resource": {
+                    "Fn::GetAtt": [
+                      "StackExecutionRole",
+                      "Arn"
+                    ]
+                  },
+                  "Condition": {
+                    "StringEquals": {
+                      "iam:PassedToService": "cloudformation.amazonaws.com"
+                    }
+                  }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "ecs:DescribeServices",
+                    "ecs:DescribeTasks",
+                    "ecs:DescribeTaskDefinition",
+                    "ecs:RegisterTaskDefinition",
+                    "ecs:ListTasks",
+                    "ecs:ListTaskDefinitions"
+                  ],
+                  "Resource": "*"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "ecs:CreateService",
+                    "ecs:UpdateService",
+                    "ecs:DeleteService",
+                    "ecs:RunTask",
+                    "ecs:StopTask"
+                  ],
+                  "Resource": [
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:service/eventclear-staging*/*"
+                    },
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:task-definition/eventclear-staging*:*"
+                    },
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:task/eventclear-staging*/*"
+                    }
+                  ]
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "iam:PassRole"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/eventclear-staging-*"
+                  },
+                  "Condition": {
+                    "StringEquals": {
+                      "iam:PassedToService": "ecs-tasks.amazonaws.com"
+                    }
+                  }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "ecr:BatchCheckLayerAvailability",
+                    "ecr:InitiateLayerUpload",
+                    "ecr:UploadLayerPart",
+                    "ecr:CompleteLayerUpload",
+                    "ecr:PutImage"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/eventclear-staging-*"
+                  }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "kms:GetPublicKey",
+                    "kms:Sign"
+                  ],
+                  "Resource": "*",
+                  "Condition": {
+                    "StringEquals": {
+                      "aws:ResourceTag/Project": "EventClearStaging"
+                    }
+                  }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "secretsmanager:GetSecretValue",
+                    "secretsmanager:PutSecretValue"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:eventclear-staging-*"
+                  }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "cloudwatch:SetAlarmState",
+                    "cloudwatch:DescribeAlarms"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:eventclear-staging-*"
+                  }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "sns:ListSubscriptionsByTopic",
+                    "sns:GetTopicAttributes"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:eventclear-staging-*"
+                  }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "servicediscovery:ListServices",
+                    "servicediscovery:CreateService",
+                    "servicediscovery:DeleteService",
+                    "servicediscovery:ListInstances",
+                    "servicediscovery:GetOperation"
+                  ],
+                  "Resource": "*",
+                  "Condition": {
+                    "StringEquals": {
+                      "aws:RequestedRegion": {
+                        "Ref": "AWS::Region"
+                      }
+                    }
+                  }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:GetBucketVersioning",
+                    "s3:GetBucketPublicAccessBlock",
+                    "s3:GetObject",
+                    "s3:PutObject"
+                  ],
+                  "Resource": "*",
+                  "Condition": {
+                    "StringEquals": {
+                      "s3:ResourceAccount": {
+                        "Ref": "AWS::AccountId"
+                      }
+                    }
+                  }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "ecr:DescribeImages"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/eventclear-staging-*"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "StackExecutionRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": "eventclear-staging-stack-execution",
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "cloudformation.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "prototype-resource-provisioning",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "ec2:Describe*",
+                    "ec2:CreateVpc",
+                    "ec2:DeleteVpc",
+                    "ec2:ModifyVpcAttribute",
+                    "ec2:CreateSubnet",
+                    "ec2:DeleteSubnet",
+                    "ec2:CreateInternetGateway",
+                    "ec2:DeleteInternetGateway",
+                    "ec2:AttachInternetGateway",
+                    "ec2:DetachInternetGateway",
+                    "ec2:CreateRouteTable",
+                    "ec2:DeleteRouteTable",
+                    "ec2:CreateRoute",
+                    "ec2:DeleteRoute",
+                    "ec2:AssociateRouteTable",
+                    "ec2:DisassociateRouteTable",
+                    "ec2:CreateSecurityGroup",
+                    "ec2:DeleteSecurityGroup",
+                    "ec2:AuthorizeSecurityGroupIngress",
+                    "ec2:RevokeSecurityGroupIngress",
+                    "ec2:AuthorizeSecurityGroupEgress",
+                    "ec2:RevokeSecurityGroupEgress",
+                    "ec2:CreateTags",
+                    "ec2:DeleteTags",
+                    "elasticloadbalancing:CreateLoadBalancer",
+                    "elasticloadbalancing:DeleteLoadBalancer",
+                    "elasticloadbalancing:Describe*",
+                    "elasticloadbalancing:ModifyLoadBalancerAttributes",
+                    "elasticloadbalancing:CreateTargetGroup",
+                    "elasticloadbalancing:DeleteTargetGroup",
+                    "elasticloadbalancing:ModifyTargetGroup",
+                    "elasticloadbalancing:ModifyTargetGroupAttributes",
+                    "elasticloadbalancing:CreateListener",
+                    "elasticloadbalancing:DeleteListener",
+                    "elasticloadbalancing:ModifyListener",
+                    "elasticloadbalancing:CreateRule",
+                    "elasticloadbalancing:DeleteRule",
+                    "elasticloadbalancing:ModifyRule",
+                    "elasticloadbalancing:AddTags",
+                    "elasticloadbalancing:RemoveTags",
+                    "elasticloadbalancing:SetSecurityGroups",
+                    "elasticloadbalancing:SetSubnets",
+                    "elasticloadbalancing:RegisterTargets",
+                    "elasticloadbalancing:DeregisterTargets",
+                    "ecs:CreateCluster",
+                    "ecs:DeleteCluster",
+                    "ecs:DescribeClusters",
+                    "ecs:UpdateClusterSettings",
+                    "ecs:TagResource",
+                    "ecs:UntagResource",
+                    "ecr:CreateRepository",
+                    "ecr:DeleteRepository",
+                    "ecr:DescribeRepositories",
+                    "ecr:PutImageScanningConfiguration",
+                    "ecr:PutImageTagMutability",
+                    "ecr:SetRepositoryPolicy",
+                    "ecr:GetRepositoryPolicy",
+                    "ecr:DeleteRepositoryPolicy",
+                    "ecr:PutLifecyclePolicy",
+                    "ecr:GetLifecyclePolicy",
+                    "ecr:DeleteLifecyclePolicy",
+                    "ecr:ListTagsForResource",
+                    "ecr:TagResource",
+                    "ecr:UntagResource",
+                    "rds:CreateDBInstance",
+                    "rds:DeleteDBInstance",
+                    "rds:ModifyDBInstance",
+                    "rds:DescribeDBInstances",
+                    "rds:CreateDBSubnetGroup",
+                    "rds:DeleteDBSubnetGroup",
+                    "rds:ModifyDBSubnetGroup",
+                    "rds:DescribeDBSubnetGroups",
+                    "rds:AddTagsToResource",
+                    "rds:RemoveTagsFromResource",
+                    "rds:ListTagsForResource",
+                    "rds:CreateDBSnapshot",
+                    "rds:CreateEventSubscription",
+                    "rds:DeleteEventSubscription",
+                    "rds:DescribeEventSubscriptions",
+                    "rds:ModifyEventSubscription",
+                    "elasticache:CreateReplicationGroup",
+                    "elasticache:DeleteReplicationGroup",
+                    "elasticache:ModifyReplicationGroup",
+                    "elasticache:Describe*",
+                    "elasticache:CreateCacheSubnetGroup",
+                    "elasticache:DeleteCacheSubnetGroup",
+                    "elasticache:ModifyCacheSubnetGroup",
+                    "elasticache:AddTagsToResource",
+                    "elasticache:RemoveTagsFromResource",
+                    "elasticache:ListTagsForResource",
+                    "servicediscovery:CreatePrivateDnsNamespace",
+                    "servicediscovery:DeleteNamespace",
+                    "servicediscovery:GetNamespace",
+                    "servicediscovery:GetOperation",
+                    "servicediscovery:ListNamespaces",
+                    "servicediscovery:ListTagsForResource",
+                    "servicediscovery:TagResource",
+                    "servicediscovery:UntagResource",
+                    "acm:RequestCertificate",
+                    "acm:DeleteCertificate",
+                    "acm:DescribeCertificate",
+                    "acm:AddTagsToCertificate",
+                    "acm:RemoveTagsFromCertificate",
+                    "acm:ListTagsForCertificate",
+                    "route53:ChangeResourceRecordSets",
+                    "route53:GetHostedZone",
+                    "route53:GetChange",
+                    "route53:ListResourceRecordSets",
+                    "route53:ListHostedZonesByName",
+                    "logs:CreateLogGroup",
+                    "logs:DeleteLogGroup",
+                    "logs:DescribeLogGroups",
+                    "logs:PutRetentionPolicy",
+                    "logs:DeleteRetentionPolicy",
+                    "logs:TagResource",
+                    "logs:UntagResource",
+                    "logs:ListTagsForResource",
+                    "cloudwatch:PutMetricAlarm",
+                    "cloudwatch:DeleteAlarms",
+                    "cloudwatch:DescribeAlarms",
+                    "cloudwatch:PutDashboard",
+                    "cloudwatch:GetDashboard",
+                    "cloudwatch:DeleteDashboards",
+                    "cloudwatch:TagResource",
+                    "cloudwatch:UntagResource",
+                    "cloudwatch:ListTagsForResource",
+                    "sns:CreateTopic",
+                    "sns:DeleteTopic",
+                    "sns:Subscribe",
+                    "sns:Unsubscribe",
+                    "sns:GetTopicAttributes",
+                    "sns:SetTopicAttributes",
+                    "sns:ListSubscriptionsByTopic",
+                    "sns:ListTagsForResource",
+                    "sns:TagResource",
+                    "sns:UntagResource",
+                    "s3:CreateBucket",
+                    "s3:DeleteBucket",
+                    "s3:GetBucket*",
+                    "s3:PutBucket*",
+                    "s3:DeleteBucketPolicy",
+                    "s3:PutEncryptionConfiguration",
+                    "s3:GetEncryptionConfiguration",
+                    "kms:CreateKey",
+                    "kms:DescribeKey",
+                    "kms:GetKeyPolicy",
+                    "kms:PutKeyPolicy",
+                    "kms:ScheduleKeyDeletion",
+                    "kms:CancelKeyDeletion",
+                    "kms:ListResourceTags",
+                    "kms:TagResource",
+                    "kms:UntagResource",
+                    "secretsmanager:CreateSecret",
+                    "secretsmanager:DeleteSecret",
+                    "secretsmanager:DescribeSecret",
+                    "secretsmanager:GetSecretValue",
+                    "secretsmanager:PutSecretValue",
+                    "secretsmanager:TagResource",
+                    "secretsmanager:UntagResource",
+                    "secretsmanager:GetRandomPassword",
+                    "secretsmanager:UpdateSecret",
+                    "budgets:ModifyBudget",
+                    "budgets:ViewBudget",
+                    "events:PutRule",
+                    "events:DeleteRule",
+                    "events:DescribeRule",
+                    "events:PutTargets",
+                    "events:RemoveTargets",
+                    "events:ListTargetsByRule",
+                    "events:TagResource",
+                    "events:UntagResource",
+                    "events:ListTagsForResource"
+                  ],
+                  "Resource": "*"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "iam:CreateRole",
+                    "iam:DeleteRole",
+                    "iam:GetRole",
+                    "iam:PutRolePolicy",
+                    "iam:DeleteRolePolicy",
+                    "iam:GetRolePolicy",
+                    "iam:TagRole",
+                    "iam:UntagRole",
+                    "iam:PassRole"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/eventclear-staging-*"
+                  }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "iam:CreateServiceLinkedRole"
+                  ],
+                  "Resource": "*",
+                  "Condition": {
+                    "StringEquals": {
+                      "iam:AWSServiceName": [
+                        "ecs.amazonaws.com",
+                        "rds.amazonaws.com",
+                        "elasticache.amazonaws.com",
+                        "elasticloadbalancing.amazonaws.com",
+                        "servicediscovery.amazonaws.com"
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "DeployRoleArn": {
+      "Value": {
+        "Fn::GetAtt": [
+          "DeployRole",
+          "Arn"
+        ]
+      }
+    },
+    "StackExecutionRoleArn": {
+      "Value": {
+        "Fn::GetAtt": [
+          "StackExecutionRole",
+          "Arn"
+        ]
+      }
+    }
+  }
+}
