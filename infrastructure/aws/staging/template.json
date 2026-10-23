@@ -637,7 +637,8 @@
     },
     "LifecyclePolicy": {
      "LifecyclePolicyText": "{\"rules\": [{\"rulePriority\": 1, \"selection\": {\"tagStatus\": \"untagged\", \"countType\": \"sinceImagePushed\", \"countUnit\": \"days\", \"countNumber\": 7}, \"action\": {\"type\": \"expire\"}}]}"
-    }
+    },
+    "EmptyOnDelete": true
    }
   },
   "WebLogs": {
@@ -664,7 +665,8 @@
     },
     "LifecyclePolicy": {
      "LifecyclePolicyText": "{\"rules\": [{\"rulePriority\": 1, \"selection\": {\"tagStatus\": \"untagged\", \"countType\": \"sinceImagePushed\", \"countUnit\": \"days\", \"countNumber\": 7}, \"action\": {\"type\": \"expire\"}}]}"
-    }
+    },
+    "EmptyOnDelete": true
    }
   },
   "ApiLogs": {
@@ -691,7 +693,8 @@
     },
     "LifecyclePolicy": {
      "LifecyclePolicyText": "{\"rules\": [{\"rulePriority\": 1, \"selection\": {\"tagStatus\": \"untagged\", \"countType\": \"sinceImagePushed\", \"countUnit\": \"days\", \"countNumber\": 7}, \"action\": {\"type\": \"expire\"}}]}"
-    }
+    },
+    "EmptyOnDelete": true
    }
   },
   "SolverLogs": {
@@ -718,7 +721,8 @@
     },
     "LifecyclePolicy": {
      "LifecyclePolicyText": "{\"rules\": [{\"rulePriority\": 1, \"selection\": {\"tagStatus\": \"untagged\", \"countType\": \"sinceImagePushed\", \"countUnit\": \"days\", \"countNumber\": 7}, \"action\": {\"type\": \"expire\"}}]}"
-    }
+    },
+    "EmptyOnDelete": true
    }
   },
   "IndexerLogs": {
@@ -745,7 +749,8 @@
     },
     "LifecyclePolicy": {
      "LifecyclePolicyText": "{\"rules\": [{\"rulePriority\": 1, \"selection\": {\"tagStatus\": \"untagged\", \"countType\": \"sinceImagePushed\", \"countUnit\": \"days\", \"countNumber\": 7}, \"action\": {\"type\": \"expire\"}}]}"
-    }
+    },
+    "EmptyOnDelete": true
    }
   },
   "MigrationLogs": {
@@ -898,7 +903,13 @@
        "ObjectOwnership": "BucketOwnerEnforced"
       }
      ]
-    }
+    },
+    "Tags": [
+     {
+      "Key": "Project",
+      "Value": "EventClearStaging"
+     }
+    ]
    },
    "DeletionPolicy": "Retain",
    "UpdateReplacePolicy": "Retain"
@@ -930,6 +941,19 @@
        "Condition": {
         "Bool": {
          "aws:SecureTransport": "false"
+        }
+       }
+      },
+      {
+       "Effect": "Deny",
+       "Principal": "*",
+       "Action": "s3:PutObject",
+       "Resource": {
+        "Fn::Sub": "${Artifacts.Arn}/analyses/*"
+       },
+       "Condition": {
+        "Null": {
+         "s3:if-none-match": "true"
         }
        }
       }
@@ -1451,7 +1475,7 @@
     "EvaluationPeriods": 2,
     "Threshold": 64000000,
     "ComparisonOperator": "LessThanThreshold",
-    "TreatMissingData": "missing",
+    "TreatMissingData": "breaching",
     "Dimensions": [
      {
       "Name": "DBInstanceIdentifier",
@@ -1710,6 +1734,40 @@
        "Ref": "Alerts"
       },
       "Id": "Alerts"
+     }
+    ]
+   }
+  },
+  "RedisUnavailableAlarm": {
+   "Type": "AWS::CloudWatch::Alarm",
+   "Properties": {
+    "AlarmName": {
+     "Fn::Sub": "${AWS::StackName}-RedisUnavailable"
+    },
+    "Namespace": "AWS/ElastiCache",
+    "MetricName": "CurrConnections",
+    "Statistic": "Maximum",
+    "Period": 60,
+    "EvaluationPeriods": 2,
+    "Threshold": 1,
+    "ComparisonOperator": "LessThanThreshold",
+    "TreatMissingData": "breaching",
+    "Dimensions": [
+     {
+      "Name": "CacheClusterId",
+      "Value": {
+       "Fn::Sub": "${Redis}-001"
+      }
+     }
+    ],
+    "AlarmActions": [
+     {
+      "Ref": "Alerts"
+     }
+    ],
+    "OKActions": [
+     {
+      "Ref": "Alerts"
      }
     ]
    }

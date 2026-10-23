@@ -18,3 +18,11 @@ export function assertStaging(env=process.env) {
 }
 export function isMain(url) { return process.argv[1] && url===pathToFileURL(process.argv[1]).href; }
 export const canonical=v=>Array.isArray(v)?`[${v.map(canonical).join(',')}]`:v&&typeof v==='object'?`{${Object.keys(v).sort().map(k=>`${JSON.stringify(k)}:${canonical(v[k])}`).join(',')}}`:JSON.stringify(v);
+
+function failWithoutCredentials(error) {
+  const message=String(error?.message??'');
+  console.error(/^[A-Z0-9_:=-]+$/.test(message)?message:'STAGING_OPERATION_FAILED_SEE_PROTECTED_SERVICE_LOGS');
+  process.exit(1);
+}
+process.on('uncaughtException',failWithoutCredentials);
+process.on('unhandledRejection',failWithoutCredentials);
