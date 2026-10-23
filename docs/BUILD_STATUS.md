@@ -1,15 +1,88 @@
 # EventClear Build Status
 
-## Current prototype sprint — 2026-10-23
+## Current working-prototype implementation — 2026-10-23
 
-Canonical current state; sections below are historical evidence, not current acceptance.
-Baseline: `2b1bf147d348df62954f6f3ff229179ff0e28960`.
+Canonical current state. Everything under “Historical build record” is historical
+and does not establish present remote acceptance.
 
-- External staging: NOT DEPLOYED. Remote lifecycle, restart, rollback and SNS delivery: NOT RUN.
-- Fresh local baseline: 51 Python tests passed, two integration cases skipped in the unit run; 35 Solidity tests and eight indexer tests passed; TypeScript passed.
-- Public product remains production-readonly. Mainnet and public capital remain disabled.
-- Historical CI/browser/fork results below remain historical; current remote CI has not been read because GitHub API access is denied.
-- Scope: reproducible AWS bootstrap, controlled non-mainnet deployment and remote acceptance automation. External audit/legal review are later capital-release requirements, not test-asset staging blockers.
+Baseline: `2b1bf147d348df62954f6f3ff229179ff0e28960` (fresh default branch,
+no intervening commits). Implementation branch: `codex/final-working-prototype`.
+Tested implementation commit: `3da709c8c16d4ed8258c2436c8f25e8f1600cff5`.
+
+**External prototype: NOT DEPLOYED / NOT REMOTELY ACCEPTED.**
+No AWS resources, remote contracts, external test transactions or SNS
+notifications were created in this sprint. There was no usable AWS identity in
+this runtime, no available staging RPC/signers/domain/budget configuration, and
+GitHub API access was denied by the environment network policy. Existing
+protected GitHub bindings could not be inspected; do not duplicate them blindly.
+
+Implemented:
+
+- Exact protected-environment OIDC trust and separate CloudFormation execution
+  role; repeatable AWS stack with private data stores, HTTPS, ECS/ECR, encrypted
+  versioned private artifacts, KMS, generated secrets, budget and monitoring.
+- Derived AWS outputs, KMS address/signature verification, dedicated test actor
+  checks, canonical solver-verified future-window fixture and non-mainnet guards.
+- First-deployment ECS creation, immutable SHA images, repeatable checksum-locked
+  migrations, separate database per manifest, receipt-derived indexer start,
+  pinned runtime secret versions, readiness and automatic service rollback.
+- Staging access gateway, SIWE/allowlist preservation, explicit test-only market
+  reads, private solver verification, current durable indexer health and claim
+  burn/supply reconciliation. Public mainnet/capital flags remain false.
+- Remote lifecycle/UI runner, S3 conditional immutability verification, API/indexer
+  restart and Redis persistence/failure probe, accounting, harmless task revision
+  rollback, sanitized immutable evidence artifacts and evidence-promotion PR tool.
+- CloudWatch definitions/application metrics, test alarm, explicit recipient
+  confirmation tool, safe staging destruction and documented retained resources.
+- Pinned GitHub Actions and Foundry standard library, patched dependency updates,
+  source/hash/regression-verified braces depth mitigation with no advisory ignore
+  or expired exception. See `config/security/braces-mitigation.json`.
+
+Current-instance evidence:
+
+| Check | Result |
+| --- | --- |
+| `make install` repeatability | Passed after fixing existing dependency reruns |
+| `make test` | Passed: solver/API, Solidity, indexer, build and rendered routes |
+| Python including new staging tests | 55 passed; two integration cases skipped in unit run |
+| Dedicated API-to-Anvil integration | Both cases passed separately |
+| Solidity local/fuzz/invariant | 35 passed; also passed with pinned forge-std v1.9.7 |
+| Local staging deployment | Ten real local contracts verified: bytecode, constructor links, role renunciation, signer, risk caps, LP and test positions |
+| Indexer | Nine passed, including claim supply after burn |
+| Staging JavaScript/crypto/gateway/security tests | 11 passed |
+| Rendered routes / production build | Five passed; production HTTP rendering verified |
+| TypeScript, ESLint, Ruff | Passed |
+| ABI compatibility | 36 compiled calls verified |
+| Local broadcast demo lifecycle | Passed on disposable chain 31337; not remote evidence |
+| Fresh SQL migration / rerun / manifest namespace creation | Passed; second run applies no migrations |
+| CloudFormation lint | Both templates passed without diagnostics; AWS service-side validation unrun |
+| GitHub workflow actionlint | Passed |
+| Dependency policy | Production high/critical zero; no development exceptions; one exact-source verified development parser mitigation |
+| License policy | Passed |
+| Gitleaks full Git history | Passed; only exact published local fixtures/status prose are allowlisted |
+| Slither | Passed existing high-severity gate; zero high findings, nine medium and lower findings remain for review |
+| Trivy repository dependency scan | Zero critical findings |
+| Web / solver image builds | Passed with cloud proxy CA/DNS trust configured locally; verification stayed enabled |
+| Web / solver image critical scans | Both passed with zero critical findings after updating esbuild and removing unused runtime npm/corepack |
+| Non-root web container | HTTP rendered; mainnet/capital flags false; quote writes returned `403 PRODUCTION_READONLY` |
+| Full API/indexer/migration image validation | Blocked downloading official RDS CA bundle: environment policy 403 |
+| Fresh browser E2E | Blocked: browser CDN denied; eight tests fail at browser launch, not application assertions |
+| Fresh Polygon fork | Unrun: no usable fork RPC URL in this runtime; historical result below is separate |
+| Public deployed site revalidation | Blocked by network policy; local production image isolation passed |
+| Remote GitHub CI | Unknown; API denied. Never equate local tests with CI completion |
+| AWS, remote lifecycle/UI, persistence, rollback, alarms/SNS delivery | NOT RUN REMOTELY |
+
+Pending network draft additions include the browser CDN, GitHub API and official
+RDS trust store. Draft saves do not apply runtime policy or publish a snapshot.
+Review/save environment settings and publish through the product before retrying
+blocked cloud checks. External staging inputs and resume commands are in
+`STAGING_CREDENTIAL_CHECKLIST.md`; operational steps are in
+`../infrastructure/aws/README.md`. Run the protected workflow only from a reviewed
+release with green CI. No manifest or remote evidence was fabricated.
+
+Independent audit: incomplete. Legal approval: incomplete. These are later
+capital-release gates, not test-asset prototype requirements. Polygon-mainnet
+EventClear deployment: not attempted. Public capital/public LP access: disabled.
 
 ## Historical build record
 

@@ -1,13 +1,16 @@
 # Staging deployment record
 
-Status: **NOT DEPLOYED — external host credentials unavailable**
+Status: **NOT DEPLOYED — external inputs unavailable to this runtime**
 
-No externally reachable staging chain or service platform is authenticated in
-the current execution environment. No addresses or transaction hashes are
-fabricated. After an approved remote non-137 endpoint is provisioned,
-run `DeployStaging.s.sol`, then `pnpm deployment:record-staging`; the recorder
-replaces this file with the deployment timestamp, Git commit, compiler,
-manifest hash, checksummed addresses, bytecode hashes and deployment
-transactions.
+No AWS resources or externally reachable staging contracts were created during
+the final implementation sprint. No addresses, signer identities, manifests or
+transaction hashes are invented. The local deployment integration test is not
+remote evidence.
 
-No Polygon mainnet deployment was attempted.
+Use `docs/STAGING_CREDENTIAL_CHECKLIST.md` and `infrastructure/aws/README.md`.
+The protected `deploy-contracts` action generates a solver-verified fixture,
+broadcasts only on an approved non-mainnet test chain, verifies the deployed
+suite and uploads sanitized immutable evidence. Promote its actual manifest
+and record through the dedicated evidence PR helper after review.
+
+No Polygon-mainnet deployment or real-fund transfer was attempted.

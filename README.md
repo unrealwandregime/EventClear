@@ -138,6 +138,12 @@ A bundle below principal becomes `SHORTFALL`; all proceeds go to principal and t
 
 ## Deployment
 
+For the controlled test-asset prototype, use the reproducible
+[CloudFormation staging runbook](infrastructure/aws/README.md) and
+[canonical input checklist](docs/STAGING_CREDENTIAL_CHECKLIST.md).
+Actual remote execution status is recorded in [BUILD_STATUS](docs/BUILD_STATUS.md).
+
+
 The public production-readonly web is deployed through Sites at
 `https://eventclear-protocol.thecryptotom.chatgpt.site`. It provides a
 zero-cost live Polymarket discovery feed and an interactive deterministic proof
