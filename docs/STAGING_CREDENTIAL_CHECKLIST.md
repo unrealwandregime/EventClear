@@ -8,7 +8,11 @@ known-development-key rejection. The workflow rejects the published Anvil and
 local-example keys and derives/pins actor addresses before use.
 
 Create GitHub environment `staging`, require reviewers, and restrict deployment
-refs. Normal AWS access uses short-lived GitHub OIDC. See
+refs to the `master` branch using a custom deployment policy. The workflow
+checks that the environment already exists with required reviewers before any
+environment-bound job; it will not auto-create an unprotected environment.
+The repository owner must do this: the current integration receives HTTP 403
+when creating/protecting environments. Normal AWS access uses short-lived GitHub OIDC. See
 `infrastructure/aws/README.md` for the one-time bootstrap command.
 
 | Value | Classification | Storage / derivation | Purpose |

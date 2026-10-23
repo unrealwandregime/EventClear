@@ -29,7 +29,23 @@ concurrency:
   group: eventclear-external-staging
   cancel-in-progress: false
 jobs:
+  protected-environment:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: read
+    steps:
+      - name: Refuse absent or unprotected staging environments
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          safe="$(gh api repos/unrealwandregime/EventClear/environments/staging --jq '(.protection_rules // [] | any(.type == "required_reviewers" and (.reviewers | length) > 0)) and .deployment_branch_policy.custom_branch_policies')"
+          test "$safe" = true
+          master="$(gh api repos/unrealwandregime/EventClear/environments/staging/deployment-branch-policies --jq '.branch_policies | any(.name == "master" and .type == "branch")')"
+          test "$master" = true
   operate:
+    needs: protected-environment
     runs-on: ubuntu-latest
     environment: staging
     env:

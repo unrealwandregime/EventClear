@@ -12,9 +12,12 @@ Tested implementation commit: `3da709c8c16d4ed8258c2436c8f25e8f1600cff5`.
 **External prototype: NOT DEPLOYED / NOT REMOTELY ACCEPTED.**
 No AWS resources, remote contracts, external test transactions or SNS
 notifications were created in this sprint. There was no usable AWS identity in
-this runtime, no available staging RPC/signers/domain/budget configuration, and
-GitHub API access was denied by the environment network policy. Existing
-protected GitHub bindings could not be inspected; do not duplicate them blindly.
+this runtime, no available staging RPC/signers/domain/budget configuration, and the protected GitHub staging environment is absent. Initial GitHub API
+requests were denied, but later branch/PR/CI operations succeeded. The integration
+refused protected-environment creation with HTTP 403 (resource not accessible by
+integration); the repository owner must create/protect that environment. No
+staging secrets or variables are bound because that environment does not exist.
+Draft PR: https://github.com/unrealwandregime/EventClear/pull/10.
 
 Implemented:
 
@@ -65,16 +68,18 @@ Current-instance evidence:
 | Web / solver image builds | Passed with cloud proxy CA/DNS trust configured locally; verification stayed enabled |
 | Web / solver image critical scans | Both passed with zero critical findings after updating esbuild and removing unused runtime npm/corepack |
 | Non-root web container | HTTP rendered; mainnet/capital flags false; quote writes returned `403 PRODUCTION_READONLY` |
-| Full API/indexer/migration image validation | Blocked downloading official RDS CA bundle: environment policy 403 |
-| Fresh browser E2E | Blocked: browser CDN denied; eight tests fail at browser launch, not application assertions |
+| Full API/indexer/migration image validation | Local build blocked by official RDS CA policy 403; GitHub Docker job passed all Compose image builds |
+| Fresh browser E2E | Cloud instance blocked at browser launch by CDN policy; GitHub web job passed the browser suite |
 | Fresh Polygon fork | Unrun: no usable fork RPC URL in this runtime; historical result below is separate |
 | Public deployed site revalidation | Blocked by network policy; local production image isolation passed |
-| Remote GitHub CI | Unknown; API denied. Never equate local tests with CI completion |
+| Remote GitHub CI | All eight jobs passed at `efd26158e6c7a474233d9de6066aa23712d6cf0b`: [run 39967077676](https://github.com/unrealwandregime/EventClear/actions/runs/39967077676). Latest PR checks remain authoritative |
 | AWS, remote lifecycle/UI, persistence, rollback, alarms/SNS delivery | NOT RUN REMOTELY |
 
 Pending network draft additions include the browser CDN, GitHub API and official
 RDS trust store. Draft saves do not apply runtime policy or publish a snapshot.
-Review/save environment settings and publish through the product before retrying
+GitHub CI logs additionally require `results-receiver.actions.githubusercontent.com`;
+the run conclusion/job steps were read through the GitHub API, but log download
+was denied. Review/save environment settings and publish through the product before retrying
 blocked cloud checks. External staging inputs and resume commands are in
 `STAGING_CREDENTIAL_CHECKLIST.md`; operational steps are in
 `../infrastructure/aws/README.md`. Run the protected workflow only from a reviewed
