@@ -115,8 +115,11 @@ async def lifespan(_: FastAPI):
         "production-readonly",
         "production-controlled",
     }:
-        if redis_client is None or not await redis_client.ping():
-            raise RuntimeError("REDIS_RATE_LIMITER_UNAVAILABLE")
+        try:
+            if redis_client is None or not await redis_client.ping():
+                raise RuntimeError("REDIS_RATE_LIMITER_UNAVAILABLE")
+        except RedisError:
+            raise RuntimeError("REDIS_RATE_LIMITER_UNAVAILABLE") from None
     yield
     if redis_client is not None:
         await redis_client.aclose()
@@ -385,26 +388,40 @@ def health():
 
 @app.get("/api/v1/readiness")
 async def readiness():
-    database_ready = store.healthcheck()
+    try:
+        database_ready = store.healthcheck()
+    except Exception:
+        database_ready = False
     redis_ready = True
     if redis_client is not None:
         try:
             redis_ready = bool(await redis_client.ping())
         except RedisError:
             redis_ready = False
-    ready = database_ready and redis_ready
+    dependencies = {}
+    if settings.normalized_mode == "staging":
+        from .staging import dependency_readiness
+
+        dependencies = await dependency_readiness(settings, store, polymarket)
+    ready = database_ready and redis_ready and all(dependencies.values())
     return JSONResponse(
         status_code=200 if ready else 503,
         content={
             "status": "ready" if ready else "not-ready",
             "database": database_ready,
             "redis": redis_ready,
+            **dependencies,
         },
     )
 
 
 @app.get("/api/v1/config/public")
-def public_config():
+async def public_config():
+    staging_health = {}
+    if settings.normalized_mode == "staging":
+        from .staging import dependency_readiness
+
+        staging_health = await dependency_readiness(settings, store, polymarket)
     read_only = settings.normalized_mode == "production-readonly"
     contracts_deployed = (
         settings.normalized_mode in {"local", "test", "polygon-fork"}
@@ -435,6 +452,8 @@ def public_config():
         "indexerStatus": (
             "Local fixture"
             if settings.normalized_mode in {"local", "test"}
+            else ("Healthy" if staging_health.get("indexer") else "Not ready")
+            if settings.normalized_mode == "staging"
             else "Not configured"
         ),
         "relationshipDatabaseStatus": (
@@ -524,7 +543,9 @@ async def markets():
         return {
             "data": await polymarket.markets(),
             "stale": False,
-            "source": "gamma-live",
+            "source": "staging-test-assets"
+            if settings.normalized_mode == "staging"
+            else "gamma-live",
         }
     except RuntimeError as exc:
         raise HTTPException(503, detail={"code": str(exc)}) from exc
@@ -673,7 +694,9 @@ async def positions(address: str):
         return {
             **capability,
             "positions": await polymarket.positions(address),
-            "source": "data-api-live",
+            "source": "staging-test-assets"
+            if settings.normalized_mode == "staging"
+            else "data-api-live",
         }
     except RuntimeError as exc:
         raise HTTPException(503, detail={"code": str(exc)}) from exc
@@ -1572,7 +1595,7 @@ def metrics():
 
 
 @app.get("/api/v1/staging/operations")
-def staging_operations(current: dict = Depends(authenticated_session)):
+async def staging_operations(current: dict = Depends(authenticated_session)):
     if settings.normalized_mode != "staging":
         raise HTTPException(404)
     with store._connection() as connection:
@@ -1590,7 +1613,14 @@ def staging_operations(current: dict = Depends(authenticated_session)):
         ).fetchone()[0]
     if row is None:
         raise HTTPException(503, detail={"code": "INDEXER_CHECKPOINT_MISSING"})
+    probe_key = (
+        "eventclear:staging:restart-probe:"
+        + hashlib.sha256(current["address"].lower().encode()).hexdigest()
+    )
+    probe = await redis_client.incr(probe_key)
+    await redis_client.expire(probe_key, 86400)
     return {
+        "redisRestartProbe": probe,
         "checkpoint": str(row[0]),
         "blockHash": row[1],
         "indexedEvents": events,

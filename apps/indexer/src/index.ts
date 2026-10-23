@@ -1,12 +1,12 @@
 import {
   createPublicClient,
+  defineChain,
   decodeEventLog,
   http,
   parseAbi,
   type Hex,
   type Log,
 } from "viem";
-import { polygon } from "viem/chains";
 import pg from "pg";
 import { pathToFileURL } from "node:url";
 import { rebuildProjection, type IndexedEvent } from "./projection.js";
@@ -21,6 +21,8 @@ function stagingMetric(name: string, value: number) {
 const confirmations = BigInt(process.env.INDEXER_CONFIRMATIONS ?? "64");
 const chainId = Number(process.env.CHAIN_ID ?? "137");
 const rpcUrls = (process.env.POLYGON_RPC_URLS ?? "").split(",").map((value) => value.trim()).filter(Boolean);
+if (process.env.EVENTCLEAR_MODE === "staging" && ([1,137,31337,1337].includes(chainId) || process.env.ENABLE_MAINNET_EXECUTION === "true" || process.env.STAGING_TEST_ASSETS_ONLY !== "true")) throw new Error("STAGING_CHAIN_GUARD_FAILED");
+const configuredChain = defineChain({ id: chainId, name: "Configured EventClear network", nativeCurrency: { name: "Gas", symbol: "GAS", decimals: 18 }, rpcUrls: { default: { http: rpcUrls } } });
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 const addresses = [
   process.env.VAULT_ADDRESS,
@@ -65,7 +67,7 @@ const stringify = (value: unknown) =>
 
 function rpcClient(index: number) {
   if (!rpcUrls[index]) throw new Error("RPC_FAILOVER_CONFIGURED");
-  return createPublicClient({ chain: polygon, transport: http(rpcUrls[index], { timeout: 15_000 }) });
+  return createPublicClient({ chain: configuredChain, transport: http(rpcUrls[index], { timeout: 15_000 }) });
 }
 
 async function withRpc<T>(operation: (client: ReturnType<typeof rpcClient>) => Promise<T>): Promise<T> {
@@ -78,6 +80,7 @@ async function withRpc<T>(operation: (client: ReturnType<typeof rpcClient>) => P
         "INSERT INTO rpc_health(rpc_url_hash,chain_id,latency_ms,healthy,observed_at) VALUES(md5($1),$2,$3,true,now())",
         [rpcUrls[index], chainId, Date.now() - started],
       );
+      if (index > 0) stagingMetric("RpcFallback", 1);
       return result;
     } catch (error) {
       stagingMetric("RpcFailures", 1);

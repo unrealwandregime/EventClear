@@ -4,6 +4,33 @@ import hashlib
 import os
 from pathlib import Path
 import psycopg
+from psycopg import sql
+from psycopg.conninfo import conninfo_to_dict
+
+
+def ensure_database(url: str) -> None:
+    params = conninfo_to_dict(url)
+    database = params.get("dbname", "")
+    if (
+        not database.startswith("eventclear_")
+        or not database.removeprefix("eventclear_").isalnum()
+    ):
+        raise RuntimeError("STAGING_DATABASE_NAMESPACE_REQUIRED")
+    params["dbname"] = "postgres"
+    with psycopg.connect(**params, autocommit=True) as connection:
+        connection.execute("SELECT pg_advisory_lock(138109318)")
+        try:
+            if (
+                connection.execute(
+                    "SELECT 1 FROM pg_database WHERE datname=%s", (database,)
+                ).fetchone()
+                is None
+            ):
+                connection.execute(
+                    sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database))
+                )
+        finally:
+            connection.execute("SELECT pg_advisory_unlock(138109318)")
 
 
 def migrate(url: str, directory: Path) -> list[str]:
@@ -43,6 +70,8 @@ def migrate(url: str, directory: Path) -> list[str]:
 
 
 if __name__ == "__main__":
+    if os.getenv("CREATE_TARGET_DATABASE") == "true":
+        ensure_database(os.environ["DATABASE_URL"])
     print(
         "Applied migrations:",
         ",".join(

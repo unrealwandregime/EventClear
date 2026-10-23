@@ -140,3 +140,33 @@ def initialize_fixture(store, fixture):
             "INSERT INTO api_read_models(kind,key,payload) VALUES ('relationship',%s,%s::jsonb) ON CONFLICT DO NOTHING",
             (relationship["id"], json.dumps(relationship)),
         )
+
+
+async def dependency_readiness(settings, store, gateway):
+    """Private service readiness, including a current durable indexer checkpoint."""
+    import httpx
+
+    solver_ready = indexer_ready = False
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            response = await client.get(f"{settings.solver_url}/health")
+            solver_ready = (
+                response.status_code == 200 and response.json().get("status") == "ok"
+            )
+    except Exception:
+        pass
+    try:
+        with store._connection() as connection:
+            checkpoint = connection.execute(
+                "SELECT block_number, updated_at FROM indexer_checkpoints WHERE chain_id=%s",
+                (settings.chain_id,),
+            ).fetchone()
+        head = int(await gateway.rpc("eth_blockNumber", []), 16)
+        indexer_ready = bool(
+            checkpoint
+            and 0 <= head - int(checkpoint[0]) <= 20
+            and time.time() - checkpoint[1].timestamp() <= 120
+        )
+    except Exception:
+        pass
+    return {"solver": solver_ready, "indexer": indexer_ready}

@@ -72,3 +72,60 @@ def test_staging_settings_require_kms_tls_access_and_test_assets(monkeypatch):
     assert "REDIS_TLS_REQUIRED" in str(error.value)
     assert "STAGING_ACCESS_TOKEN" in str(error.value)
     assert "RISK_SIGNER_BACKEND=kms" in str(error.value)
+
+
+def test_private_readiness_requires_solver_and_current_indexer(monkeypatch):
+    import asyncio
+    import time
+    from datetime import datetime, timezone
+    from contextlib import contextmanager
+    from eventclear_api.staging import dependency_readiness
+    import httpx
+
+    row = [98, datetime.now(timezone.utc)]
+
+    class Connection:
+        def execute(self, *args):
+            return self
+
+        def fetchone(self):
+            return row
+
+    class Store:
+        @contextmanager
+        def _connection(self):
+            yield Connection()
+
+    class Gateway:
+        async def rpc(self, *args):
+            return "0x64"
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def get(self, *args):
+            return SimpleNamespace(status_code=200, json=lambda: {"status": "ok"})
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: Client())
+    settings = SimpleNamespace(
+        solver_url="http://solver.private:8001", chain_id=11155111
+    )
+    assert asyncio.run(dependency_readiness(settings, Store(), Gateway())) == {
+        "solver": True,
+        "indexer": True,
+    }
+    row[0] = 1
+    assert (
+        asyncio.run(dependency_readiness(settings, Store(), Gateway()))["indexer"]
+        is False
+    )
+    row[0] = 98
+    row[1] = datetime.fromtimestamp(time.time() - 121, timezone.utc)
+    assert (
+        asyncio.run(dependency_readiness(settings, Store(), Gateway()))["indexer"]
+        is False
+    )
