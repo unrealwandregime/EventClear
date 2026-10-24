@@ -182,7 +182,7 @@ export function taskDefinition(service, image, o, manifest, env = process.env) {
       "8001",
     ],
     web: ["node", "scripts/aws/staging-gateway.mjs"],
-    indexer: ["pnpm", "--dir", "apps/indexer", "run"],
+    indexer: ["node", "--import", "tsx", "apps/indexer/src/index.ts", "run"],
     migration: ["python", "/app/migrate.py"],
   };
   const ports = { api: 8000, web: 3000, solver: 8001 };
@@ -225,8 +225,7 @@ export function taskDefinition(service, image, o, manifest, env = process.env) {
   if (service === "indexer")
     container.healthCheck = {
       command: [
-        "CMD-SHELL",
-        "pnpm --dir apps/indexer exec tsx src/index.ts health",
+        "CMD", "node", "--import", "tsx", "apps/indexer/src/index.ts", "health",
       ],
       interval: 60,
       timeout: 30,
