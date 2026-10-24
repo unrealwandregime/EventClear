@@ -11,15 +11,27 @@ immutable PostgreSQL proof blobs, supervised combined web/API/solver/indexer
 image, provider-neutral lifecycle/UI path, free-plan-verified redeploy adapter,
 optional weekly health checks and current provider setup documentation.
 
-Verified locally: 70 Python tests (two contract cases run separately),
-including 15 prototype safety/storage/supervisor tests with real disposable
-PostgreSQL; 35 Solidity tests; two actual API-to-Anvil integration cases; nine
-indexer tests; 15 JavaScript staging/prototype tests; five rendered-route tests;
+Verified locally: 72 Python tests (two contract cases run separately),
+including 17 prototype safety/storage/supervisor tests with real disposable
+PostgreSQL; 35 Solidity tests; two actual API-to-Anvil integration cases; 12
+indexer tests; 16 JavaScript staging/prototype tests; five rendered-route tests;
 repeatable installation; lint, Ruff, TypeScript and workflow lint. The combined
 Python 3.12/Node 22 non-root image builds without AWS access. The Debian 12 base
 initially had two critical OS findings; switching to matching Debian 13 bases
-produced zero critical findings. Final image refresh and expanded CI remain
-under verification.
+produced zero critical findings. CI at `d375a6834a036da2272a45d3e1d7dcfe99b4ba3b` passed all nine
+validation jobs, including browser execution and critical scans of all six
+images (run 40063537778). Later runtime/recovery hardening requires fresh CI;
+that prior green result is not acceptance of a newer head.
+
+A local diagnostic image using the same frozen dependencies plus the corrected
+indexer workspace installation passed the complete backend lifecycle with all
+five supervised processes under a 512 MiB memory/one-CPU cap (host has no swap).
+The diagnostic image is not a published release image. The canonical Dockerfile
+now copies the indexer package manifest before installing and CI verifies actual
+non-root API/indexer imports. Runtime source/migrations are explicitly readable.
+The exact latest canonical image refresh is blocked locally by registry HTTP
+503 responses; the workflow builds it independently. Optional BuildKit dependency
+cache input supports frozen, integrity-checked offline pnpm installation.
 
 The shared backend lifecycle passed on a disposable chain with the prototype
 API mode, random isolated signers, PostgreSQL proofs, TLS RPC/Redis, LP deposit,
@@ -36,6 +48,13 @@ The stronger check exposed missing pool asset snapshots in the inherited
 indexer. It now adds checkpoint-pinned pool/withdrawal/resolution reads and
 compares event-derived ledger values to onchain totals before committing the
 checkpoint. RPC health diagnostics retain 24 hours to bound free-database use.
+Catch-up uses bounded RPC block ranges (500 by default), includes the deployment
+start block and reads snapshots at each range's endpoint. A real claim self-transfer
+emitted while indexing was stopped was recovered exactly once; checkpoint,
+claim balances and accounting remained consistent. Unsupported non-protocol
+logs are ignored, while malformed supported events are quarantined and prevent
+readiness. Structured API logs use server-generated correlation IDs and route
+templates; wallet/session/RPC/database credentials are excluded.
 
 Slither rescan: 32 findings, zero high/critical. Five medium findings and all
 lower findings have explicit internal dispositions in SLITHER_FINDING_REVIEW;
@@ -43,8 +62,12 @@ this is not an independent audit. Minor initialization, shadowing and beneficiar
 checks were fixed without detector suppression.
 
 Local Playwright cannot download Chromium: the CDN returns HTTP 403 Domain
-forbidden. The GitHub API also returns Forbidden, so final CI and PR-description
-updates cannot currently be verified here. Branch pushes work. Public-site
+forbidden. The GitHub API returns Forbidden, but public workflow HTML allowed verification
+of run 40063537778. Later GitHub/npm/Docker/PyPI requests began returning HTTP 503.
+The last local dependency audit therefore failed closed with
+`AUDIT_RESULT_INVALID_OR_UNAVAILABLE`; the preceding successful CI dependency
+check applies to the unchanged lockfile. Final head CI must be read, not inferred.
+The narrow PR metadata job updates PR #10 only after all validation succeeds. Public-site
 remote revalidation is blocked by DNS/network access; local read-only regression
 checks pass. Prior green CI at
 497a2e2 applies to the prior AWS-oriented implementation, not this pivot.

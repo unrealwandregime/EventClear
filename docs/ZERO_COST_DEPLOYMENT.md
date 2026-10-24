@@ -69,7 +69,7 @@ services, never an ephemeral container filesystem.
 7. Set runner `PROTOTYPE_URL`, access token and `PROTOTYPE_PREVIOUS_SHA` to a
    compatible reviewed immutable revision. For automated Render restart/rollback,
    bind `RENDER_API_KEY` and `RENDER_SERVICE_ID` in protected runner secrets.
-   The adapter checks the existing service is `free` before any redeploy and
+   The adapter checks the existing service is `free` and matches `PROTOTYPE_URL` before any redeploy and
    never changes billing or plans. A previous revision must support this mode and
    migration schema; the old AWS-only baseline is not a valid rollback target.
 
@@ -110,14 +110,25 @@ Supply secrets through protected environment bindings, not command arguments or
 shell history. All runtime metadata is public; no generated address is checked
 in until actual deployment evidence exists. The image needs no AWS download.
 On enterprise networks an optional BuildKit `build_ca` secret supports a trusted
-proxy CA; TLS and package integrity validation remain enabled.
+proxy CA; TLS and package integrity validation remain enabled. An optional
+`DEPENDENCY_CACHE_SOURCE` BuildKit context may provide `pnpm/` (the pinned CLI)
+and `store/` (a trusted pnpm content store) for offline installation. The default
+is an empty scratch stage and normal registry installation. Offline installs
+still enforce the frozen lockfile and content integrity; no package signature,
+TLS, vulnerability or license check is bypassed.
 
 The full lifecycle includes remote UI analysis/quote, LP deposit, SIWE, proof
 reproduction and content hash, signature recovery, exact approval, financing,
-indexer comparison, combined-host restart, durable records/Redis probe,
+indexer comparison, combined-host restart, durable records/Redis probe, actual offline-event
+backfill,
 resolution, settlement, principal/residual redemption and pool/treasury/claim
 reconciliation. Remote restart/rollback require host redeploy authorization;
-missing credentials fail acceptance rather than silently skipping it.
+missing credentials fail acceptance rather than silently skipping it. For the
+catch-up drill the Render adapter verifies the service is free, confirms actual
+suspension, emits a harmless claim self-transfer while indexing is offline, and
+resumes in a `finally` block. It then redeploys the immutable SHA and verifies
+that the event appears exactly once after restart. This affects only the
+controlled prototype; never point its service ID at a public/production service.
 
 Rollback redeploys `PROTOTYPE_PREVIOUS_SHA` without schema downgrade. Preserve
 previous/current SHAs, host deployment IDs, manifest hash and migration ledger

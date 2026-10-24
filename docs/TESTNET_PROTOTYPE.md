@@ -46,3 +46,12 @@ See [zero-cost deployment](ZERO_COST_DEPLOYMENT.md), [actual evidence](TESTNET_P
 and [current status](BUILD_STATUS.md). No remote success is implied by code or
 local tests. Professional audit/legal approval and production governance remain
 future capital-release requirements.
+
+The indexer backfills in bounded block ranges and reconciles against the exact
+checkpoint block. A corrupt supported event prevents readiness; unrelated ABI
+logs do not become false corruption alerts. RPC-health history retains 24 hours.
+The remote runner deliberately suspends the free prototype for an offline-event
+catch-up drill, resumes it even on failure, and verifies the recovered event.
+Official Sepolia chain ID metadata is read from Geth's current checked-in chain
+specification, not a stale name-only website check. Actual RPC/faucet usability
+must still be verified before deployment.
