@@ -101,7 +101,7 @@ jobs:
       - name: Install locked project tools
         run: |
           pnpm install --frozen-lockfile
-          python -m pip install -e apps/solver -e apps/api pytest cfn-lint
+          python -m pip install -e apps/solver -e "apps/api[aws]" pytest cfn-lint
           cd packages/contracts
           forge install OpenZeppelin/openzeppelin-contracts@v5.4.0 foundry-rs/forge-std@v1.9.7 --no-git
       - name: Validate software gates

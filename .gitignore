@@ -52,3 +52,5 @@ next-env.d.ts
 *.tsbuildinfo
 __pycache__/
 *.py[cod]
+
+prototype-health.json

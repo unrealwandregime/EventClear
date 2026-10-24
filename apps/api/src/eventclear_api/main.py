@@ -152,6 +152,8 @@ async def controls(request: Request, call_next):
         c.isalnum() or c in "-_" for c in correlation_id
     ):
         correlation_id = str(uuid.uuid4())
+    if settings.normalized_mode == "testnet-prototype":
+        correlation_id = str(uuid.uuid4())
     request.state.correlation_id = correlation_id
     key = request.client.host if request.client else "unknown"
     now = time.monotonic()
@@ -200,6 +202,23 @@ async def controls(request: Request, call_next):
             )
         window.append(now)
     response = await call_next(request)
+    if settings.normalized_mode == "testnet-prototype":
+        route = request.scope.get("route")
+        print(
+            json.dumps(
+                {
+                    "event": "api_request",
+                    "correlationId": correlation_id,
+                    "method": request.method
+                    if request.method
+                    in {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
+                    else "OTHER",
+                    "route": getattr(route, "path", "unmatched"),
+                    "status": response.status_code,
+                }
+            ),
+            flush=True,
+        )
     response.headers["x-correlation-id"] = correlation_id
     response.headers["x-content-type-options"] = "nosniff"
     response.headers["content-security-policy"] = "default-src 'self'"
@@ -1621,6 +1640,13 @@ async def staging_operations(current: dict = Depends(authenticated_session)):
             "SELECT count(*) FROM chain_events WHERE chain_id=%s AND removed=false",
             (settings.chain_id,),
         ).fetchone()[0]
+        migrations = connection.execute(
+            "SELECT name,sha256 FROM eventclear_schema_migrations ORDER BY name"
+        ).fetchall()
+        dead_letters = connection.execute(
+            "SELECT count(*) FROM indexer_dead_letters WHERE chain_id=%s",
+            (settings.chain_id,),
+        ).fetchone()[0]
     if row is None:
         raise HTTPException(503, detail={"code": "INDEXER_CHECKPOINT_MISSING"})
     probe_key = (
@@ -1636,4 +1662,9 @@ async def staging_operations(current: dict = Depends(authenticated_session)):
         "blockHash": row[1],
         "indexedEvents": events,
         "duplicateEvents": duplicates,
+        "deadLetters": dead_letters,
+        "databaseMigrationVersion": migrations[-1][0] if migrations else None,
+        "migrationLedgerHash": hashlib.sha256(
+            json.dumps(migrations, separators=(",", ":")).encode()
+        ).hexdigest(),
     }

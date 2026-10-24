@@ -83,13 +83,15 @@ def test_private_readiness_requires_solver_and_current_indexer(monkeypatch):
     import httpx
 
     row = [98, datetime.now(timezone.utc)]
+    dead_letters = [0]
 
     class Connection:
-        def execute(self, *args):
+        def execute(self, query, *args):
+            self.query = query
             return self
 
         def fetchone(self):
-            return row
+            return [dead_letters[0]] if "indexer_dead_letters" in self.query else row
 
     class Store:
         @contextmanager
@@ -125,6 +127,13 @@ def test_private_readiness_requires_solver_and_current_indexer(monkeypatch):
     )
     row[0] = 98
     row[1] = datetime.fromtimestamp(time.time() - 121, timezone.utc)
+    assert (
+        asyncio.run(dependency_readiness(settings, Store(), Gateway()))["indexer"]
+        is False
+    )
+
+    row[1] = datetime.now(timezone.utc)
+    dead_letters[0] = 1
     assert (
         asyncio.run(dependency_readiness(settings, Store(), Gateway()))["indexer"]
         is False

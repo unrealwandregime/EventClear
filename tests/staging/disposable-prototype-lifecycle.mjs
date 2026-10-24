@@ -263,6 +263,7 @@ try {
     POLYGON_RPC_URLS: "https://localhost:9460",
     RPC_REDUNDANCY_DEGRADED: "true",
     INDEXER_CONFIRMATIONS: "0",
+    INDEXER_BLOCK_BATCH_SIZE: "5",
     INDEXER_START_BLOCK: String(
       Math.min(...broadcast.receipts.map((r) => Number(BigInt(r.blockNumber)))),
     ),
@@ -359,9 +360,10 @@ try {
     manifest,
     fixture,
     runtime: { accessToken: appEnv.STAGING_ACCESS_TOKEN },
-    restartHost: async () => {
+    restartHost: async (_sha, whileStopped) => {
       await stop(api);
       await stop(indexer);
+      if (whileStopped) await whileStopped();
       await boot();
       return { kind: "disposable-process-restart" };
     },

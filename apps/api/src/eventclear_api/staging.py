@@ -164,9 +164,14 @@ async def dependency_readiness(settings, store, gateway):
                 "SELECT block_number, updated_at FROM indexer_checkpoints WHERE chain_id=%s",
                 (settings.chain_id,),
             ).fetchone()
+            dead_letters = connection.execute(
+                "SELECT count(*) FROM indexer_dead_letters WHERE chain_id=%s",
+                (settings.chain_id,),
+            ).fetchone()[0]
         head = int(await gateway.rpc("eth_blockNumber", []), 16)
         indexer_ready = bool(
             checkpoint
+            and dead_letters == 0
             and 0 <= head - int(checkpoint[0]) <= 20
             and time.time() - checkpoint[1].timestamp() <= 120
         )

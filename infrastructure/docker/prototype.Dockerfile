@@ -1,10 +1,19 @@
+ARG DEPENDENCY_CACHE_SOURCE=scratch
+FROM ${DEPENDENCY_CACHE_SOURCE} AS dependency-cache
 FROM node:22-trixie-slim AS build
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY patches ./patches
-RUN --mount=type=secret,id=build_ca \
+COPY apps/indexer/package.json apps/indexer/package.json
+RUN --mount=type=secret,id=build_ca --mount=from=dependency-cache,target=/dependency-cache \
     if [ -f /run/secrets/build_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/build_ca npm_config_cafile=/run/secrets/build_ca; fi; \
-    export NODE_USE_ENV_PROXY=1; npm install -g pnpm@10.15.0 && pnpm install --frozen-lockfile
+    export NODE_USE_ENV_PROXY=1; \
+    if [ -f /dependency-cache/pnpm/bin/pnpm.cjs ]; then \
+      cp -a /dependency-cache/pnpm /opt/pnpm && ln -s /opt/pnpm/bin/pnpm.cjs /usr/local/bin/pnpm && \
+      cp -a /dependency-cache/store /opt/package-store && \
+      pnpm install --frozen-lockfile --offline --store-dir /opt/package-store; \
+    else npm install -g pnpm@10.15.0 && pnpm install --frozen-lockfile; fi
+
 COPY . .
 RUN pnpm build
 FROM python:3.12-slim-trixie

@@ -185,3 +185,10 @@ def test_supervisor_child_failure_reaps_every_process(monkeypatch):
     )
     assert time.monotonic() - started < 5
     assert all(child.poll() is not None for child in children)
+
+
+@pytest.mark.parametrize("address", ["not-an-address", "0x" + "0" * 40])
+def test_admin_identity_must_be_nonzero_evm_address(prototype, monkeypatch, address):
+    monkeypatch.setenv("PROTOTYPE_ADMIN_ADDRESS", address)
+    with pytest.raises(RuntimeError, match="DEDICATED_ADMIN_ADDRESS_REQUIRED"):
+        validate_prototype(replace(prototype, admin_allowlist_raw=address))

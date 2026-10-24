@@ -85,6 +85,10 @@ jobs:
         run: docker build -f infrastructure/docker/migration.Dockerfile -t "eventclear-ci-migration:$GITHUB_SHA" .
       - name: Build zero-cost combined prototype image
         run: docker build -f infrastructure/docker/prototype.Dockerfile -t "eventclear-ci-prototype:$GITHUB_SHA" .
+      - name: Verify non-root API and indexer runtime imports
+        run: |
+          docker run --rm --entrypoint python "eventclear-ci-prototype:$GITHUB_SHA" -c 'from eventclear_api.prototype import known_development_addresses; assert len(known_development_addresses()) >= 20'
+          docker run --rm --entrypoint node "eventclear-ci-prototype:$GITHUB_SHA" --import tsx -e 'import("./apps/indexer/src/index.ts").then(() => process.exit(0))'
       - name: Verify prototype image rejects unconfigured startup
         run: |
           if docker run --rm "eventclear-ci-prototype:$GITHUB_SHA"; then

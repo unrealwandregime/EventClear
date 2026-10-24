@@ -343,7 +343,18 @@ export async function executeLifecycle({
   // Restart API/indexer before settlement to verify persistent analysis, quote and checkpoint.
   const checkpointBefore = await api("/staging/operations");
   if (prototype) {
-    evidence.restartDeployment = await restartHost(evidence.gitSha);
+    evidence.restartDeployment = await restartHost(
+      evidence.gitSha,
+      async () => {
+        await send(
+          "tester",
+          "claims",
+          "safeTransferFrom",
+          [actors.tester.address, actors.tester.address, residualId, 1n, "0x"],
+          "offlineClaimTransfer",
+        );
+      },
+    );
     await waitFor(async () => {
       try {
         return (await api("/readiness")).status === "ready";
@@ -379,16 +390,38 @@ export async function executeLifecycle({
     (await api("/auth/session")).address.toLowerCase(),
     actors.tester.address.toLowerCase(),
   );
+  if (prototype)
+    await waitFor(async () => {
+      const events = await api("/protocol/events");
+      return events.data.some(
+        (event) =>
+          event.transactionHash?.toLowerCase() ===
+            evidence.transactions.offlineClaimTransfer?.toLowerCase() &&
+          event.eventName === "TransferSingle",
+      );
+    }, "offline claim event backfill");
   const checkpointAfter = await api("/staging/operations");
   assert.ok(
     BigInt(checkpointAfter.checkpoint) >= BigInt(checkpointBefore.checkpoint),
   );
   assert.equal(checkpointAfter.duplicateEvents, 0);
+  assert.equal(checkpointAfter.deadLetters, 0);
+  assert.equal(
+    checkpointAfter.migrationLedgerHash,
+    checkpointBefore.migrationLedgerHash,
+  );
   if (prototype)
     assert.notEqual(checkpointAfter.bootId, checkpointBefore.bootId);
   assert.ok(
     checkpointAfter.redisRestartProbe > checkpointBefore.redisRestartProbe,
   );
+  if (prototype)
+    evidence.indexerCatchup = {
+      status: "passed",
+      transactionHash: evidence.transactions.offlineClaimTransfer,
+      checkpointBefore: checkpointBefore.checkpoint,
+      checkpointAfter: checkpointAfter.checkpoint,
+    };
   evidence.restart = {
     api: "passed",
     indexer: "passed",
@@ -523,6 +556,11 @@ export async function executeLifecycle({
     assert.equal((await api(`/analysis/${analysis.id}`)).id, analysis.id);
     const checkpoint = await api("/staging/operations");
     assert.equal(checkpoint.duplicateEvents, 0);
+    assert.equal(checkpoint.deadLetters, 0);
+    assert.equal(
+      checkpoint.migrationLedgerHash,
+      checkpointBefore.migrationLedgerHash,
+    );
     for (const [field, value] of Object.entries(ledger))
       assert.equal(await read("fundingPool", field), value);
     evidence.rollback = {
@@ -531,6 +569,13 @@ export async function executeLifecycle({
       checkpoint,
     };
     await restartHost(evidence.gitSha);
+    await waitFor(async () => {
+      try {
+        return (await api("/readiness")).status === "ready";
+      } catch {
+        return false;
+      }
+    }, "restored release readiness");
   } else {
     await operate("deploy-services");
     await operate("rollback-services");

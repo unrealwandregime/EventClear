@@ -13,6 +13,7 @@ const environment = () => ({
   ENABLE_MAINNET_EXECUTION: "false",
   PUBLIC_CAPITAL_ACTIVATED: "false",
   PROTOTYPE_MAX_MONTHLY_COST_USD: "0",
+  PROTOTYPE_URL: "https://eventclear-test.onrender.com",
   PROTOTYPE_ADMIN_ADDRESS: privateKeyToAccount(generatePrivateKey()).address,
   ...Object.fromEntries(
     [
@@ -50,6 +51,7 @@ test("host adapter refuses paid existing service before redeploy", async () => {
   try {
     Object.assign(process.env, {
       PROTOTYPE_MAX_MONTHLY_COST_USD: "0",
+      PROTOTYPE_URL: "https://eventclear-test.onrender.com",
       RENDER_SERVICE_ID: "srv-example",
       RENDER_API_KEY: "test-only-not-a-real-credential",
     });
@@ -83,6 +85,7 @@ test("free-host redeploy pins and verifies the immutable commit", async () => {
   try {
     Object.assign(process.env, {
       PROTOTYPE_MAX_MONTHLY_COST_USD: "0",
+      PROTOTYPE_URL: "https://eventclear-test.onrender.com",
       RENDER_SERVICE_ID: "srv-example",
       RENDER_API_KEY: "test-only-not-a-real-credential",
     });
@@ -91,7 +94,13 @@ test("free-host redeploy pins and verifies the immutable commit", async () => {
       return new Response(
         JSON.stringify(
           calls.length === 1
-            ? { type: "web_service", serviceDetails: { plan: "free" } }
+            ? {
+                type: "web_service",
+                serviceDetails: {
+                  plan: "free",
+                  url: "https://eventclear-test.onrender.com",
+                },
+              }
             : calls.length === 2
               ? { id: "dep-test" }
               : { status: "live", commit: { id: sha } },
@@ -104,6 +113,46 @@ test("free-host redeploy pins and verifies the immutable commit", async () => {
       commitId: sha,
     });
     assert.equal(calls.filter((c) => c.options.method === "POST").length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const k of Object.keys(process.env))
+      if (!(k in old)) delete process.env[k];
+    Object.assign(process.env, old);
+  }
+});
+test("offline drill confirms suspension and resumes even when its callback fails", async () => {
+  const originalFetch = globalThis.fetch,
+    old = { ...process.env },
+    paths = [];
+  try {
+    Object.assign(process.env, {
+      PROTOTYPE_MAX_MONTHLY_COST_USD: "0",
+      PROTOTYPE_URL: "https://eventclear-test.onrender.com",
+      RENDER_SERVICE_ID: "srv-example",
+      RENDER_API_KEY: "test-only-not-a-real-credential",
+    });
+    globalThis.fetch = async (url, options) => {
+      const path = new URL(url).pathname;
+      paths.push(path);
+      if (options.method === "POST") return new Response(null, { status: 202 });
+      return new Response(
+        JSON.stringify({
+          type: "web_service",
+          serviceDetails: { plan: "free", url: "https://eventclear-test.onrender.com" },
+          suspended: paths.length > 1 ? "suspended" : "not_suspended",
+        }),
+      );
+    };
+    await assert.rejects(
+      () =>
+        redeploy("a".repeat(40), async () => {
+          throw Error("DRILL_FAILURE");
+        }),
+      /DRILL_FAILURE/,
+    );
+    assert.ok(paths.includes("/v1/services/srv-example/suspend"));
+    assert.equal(paths.at(-1), "/v1/services/srv-example/resume");
+    assert.ok(!paths.some((p) => p.endsWith("/deploys")));
   } finally {
     globalThis.fetch = originalFetch;
     for (const k of Object.keys(process.env))

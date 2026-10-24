@@ -61,6 +61,7 @@ export function actors(env = process.env) {
   const admin = env.PROTOTYPE_ADMIN_ADDRESS;
   if (
     !/^0x[0-9a-f]{40}$/i.test(admin ?? "") ||
+    /^0x0{40}$/i.test(admin ?? "") ||
     dev.has(admin.toLowerCase()) ||
     new Set([
       ...Object.values(result).map((a) => a.address.toLowerCase()),

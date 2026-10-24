@@ -4,14 +4,20 @@ import {
   decodeEventLog,
   http,
   parseAbi,
+  toEventSelector,
   type Hex,
   type Log,
 } from "viem";
 import pg from "pg";
+import { blockRanges } from "./ranges.js";
 import { pathToFileURL } from "node:url";
 import { rebuildProjection, type IndexedEvent } from "./projection.js";
 
 function stagingMetric(name: string, value: number) {
+  if (process.env.EVENTCLEAR_MODE === "testnet-prototype") {
+    console.log(JSON.stringify({event:"indexer_metric",metric:name,value}));
+    return;
+  }
   if (process.env.EVENTCLEAR_MODE !== "staging") return;
   const stack = process.env.STAGING_STACK_NAME;
   if (!stack) throw new Error("STAGING_METRIC_DIMENSION_REQUIRED");
@@ -115,12 +121,12 @@ async function checkpoint(): Promise<Checkpoint> {
 }
 
 export function decodeProtocolLog(log: Pick<Log, "data" | "topics">) {
-  return decodeEventLog({ abi: protocolAbi, data: log.data, topics: log.topics, strict: false });
+  return decodeEventLog({ abi: protocolAbi, data: log.data, topics: log.topics, strict: true });
 }
 
 async function ensureCanonicalCheckpoint(): Promise<bigint> {
   const stored = await checkpoint();
-  if (!stored) return BigInt(process.env.INDEXER_START_BLOCK ?? "0");
+  if (!stored) {const start = BigInt(process.env.INDEXER_START_BLOCK ?? "0"); return start > 0n ? start - 1n : 0n;}
   const current = await withRpc((client) => client.getBlock({ blockNumber: stored.blockNumber }));
   if (current.hash === stored.blockHash) return stored.blockNumber;
 
@@ -189,7 +195,8 @@ async function rebuildReadModels(database: pg.PoolClient, blockNumber: bigint) {
     }
   }
   const fundingPoolAddress = process.env.FUNDING_POOL_ADDRESS as `0x${string}` | undefined;
-  if (fundingPoolAddress) {
+  const poolCode = fundingPoolAddress ? await withRpc(client => client.getCode({address:fundingPoolAddress,blockNumber})) : undefined;
+  if (fundingPoolAddress && poolCode && poolCode !== "0x") {
     // Read at the exact projected checkpoint, never a newer unindexed state.
     const eventLedger: Record<string, string> = {
       outstandingAdvanceCostBasisAtomic: "outstandingAdvanceCostBasis",
@@ -273,7 +280,15 @@ async function rebuildReadModels(database: pg.PoolClient, blockNumber: bigint) {
   );
 }
 
+const supportedTopics = new Set(protocolAbi.filter(entry => entry.type === "event").map(entry => toEventSelector(entry)));
+export function isProtocolLog(log: Pick<Log, "topics">): boolean {
+  return Boolean(log.topics[0] && supportedTopics.has(log.topics[0]));
+}
+
 async function persistLog(database: pg.PoolClient, log: Log) {
+  // ERC20 share Transfer and Approval are valid logs outside this read model.
+  // Preserve supported role events and quarantine malformed supported events.
+  if (!isProtocolLog(log)) return;
   try {
     const decoded = decodeProtocolLog(log);
     await database.query(
@@ -335,7 +350,7 @@ async function run() {
     const from = (await ensureCanonicalCheckpoint()) + 1n;
     const head = await safeHead();
     stagingMetric("IndexerLag", Number(head >= from ? head - from + 1n : 0n));
-    if (from <= head) await indexRange(from, head);
+    for (const [start,end] of blockRanges(from,head,BigInt(process.env.INDEXER_BLOCK_BATCH_SIZE ?? "500"))) await indexRange(start,end);
     stagingMetric("IndexerLag", 0);
     await new Promise((resolve) => setTimeout(resolve, process.env.EVENTCLEAR_MODE === "testnet-prototype" ? 8_000 : 4_000));
   }

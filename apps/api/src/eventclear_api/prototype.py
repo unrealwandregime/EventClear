@@ -5,6 +5,7 @@ from functools import lru_cache
 from urllib.parse import urlparse
 
 from eth_account import Account
+from eth_utils import is_address
 
 
 @lru_cache(maxsize=1)
@@ -49,7 +50,11 @@ def validate_prototype(settings):
         role_addresses = set()
         for role in ("DEPLOYER", "LP", "TESTER", "ADMIN"):
             address = os.getenv(f"PROTOTYPE_{role}_ADDRESS", "").lower()
-            if not address or address in known_development_addresses():
+            if (
+                not is_address(address)
+                or int(address, 16) == 0
+                or address in known_development_addresses()
+            ):
                 missing.append(f"DEDICATED_{role}_ADDRESS_REQUIRED")
             role_addresses.add(address)
         if len(role_addresses | {signer}) != 5:
