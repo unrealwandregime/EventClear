@@ -33,13 +33,12 @@
     "@tanstack/react-query": "^5.83.0",
     "drizzle-orm": "0.45.2",
     "lightweight-charts": "^5.0.8",
-    "next": "16.2.12",
+    "next": "16.4.2",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-hook-form": "^7.61.1",
     "viem": "^2.33.2",
-    "wagmi": "^2.16.1",
-    "zod": "^4.0.14"
+    "zod": "4.6.6"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.47.0",
@@ -54,14 +53,14 @@
     "ajv-formats": "3.0.1",
     "drizzle-kit": "0.31.10",
     "eslint": "9.39.4",
-    "eslint-config-next": "16.2.12",
+    "eslint-config-next": "16.4.2",
     "react-server-dom-webpack": "19.2.8",
     "tailwindcss": "4.2.1",
     "tsx": "4.20.6",
     "turbo": "^2.5.5",
     "typescript": "5.9.3",
     "vinext": "0.0.50",
-    "vite": "8.1.5",
+    "vite": "8.1.6",
     "wrangler": "4.114.0"
   },
   "type": "module"

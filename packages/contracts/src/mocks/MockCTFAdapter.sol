@@ -30,7 +30,7 @@ contract MockCTFAdapter is ERC1155Holder {
     }
 
     function redeem(bytes32[] calldata, uint256[] calldata tokenIds, uint256[] calldata amounts) external {
-        uint256 payout;
+        uint256 payout = 0;
         for (uint256 i; i < tokenIds.length; ++i) {
             positions.safeTransferFrom(msg.sender, address(this), tokenIds[i], amounts[i], "");
             payout += positions.burnForRedemption(address(this), tokenIds[i], amounts[i]);

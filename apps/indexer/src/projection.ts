@@ -77,6 +77,9 @@ function applyClaimTransfer(
   state.claimBalances.set(claimId, balances);
   const claim = state.claims.get(claimId);
   if (claim) {
+    if (normalizedTo === "0x0000000000000000000000000000000000000000") {
+      claim.supplyAtomic = (BigInt(text(claim.supplyAtomic)) - value).toString();
+    }
     claim.balances = Object.fromEntries(
       [...balances].map(([owner, balance]) => [owner, balance.toString()]),
     );

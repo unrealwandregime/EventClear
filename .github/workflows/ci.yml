@@ -4,13 +4,16 @@ on:
   pull_request:
 permissions:
   contents: read
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   web:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
@@ -20,71 +23,116 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:e2e
   python:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with: { python-version: "3.12" }
       - run: pip install -e apps/solver -e apps/api pytest ruff==0.15.21
       - run: ruff format --check apps
       - run: ruff check apps
       - run: pytest apps/solver/tests apps/api/tests
   contracts:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: foundry-rs/foundry-toolchain@v1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1
+        with: { version: v1.5.1 }
       - working-directory: packages/contracts
         run: |
-          forge install OpenZeppelin/openzeppelin-contracts@v5.4.0 foundry-rs/forge-std --no-git
+          forge install OpenZeppelin/openzeppelin-contracts@v5.4.0 foundry-rs/forge-std@v1.9.7 --no-git
           forge fmt --check
           forge test --no-match-path "test/fork/*" -vvv
           forge build --sizes
       - run: python scripts/check_api_abi.py
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with: { python-version: "3.12" }
       - run: pip install -e apps/solver -e apps/api pytest slither-analyzer
       - run: make test-api-contract-integration
       - working-directory: packages/contracts
         run: slither . --config-file ../../slither.config.json --json ../../slither-report.json
       - if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: slither-report
           path: slither-report.json
   supply-chain:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with: { fetch-depth: 0 }
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
         env:
           GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
           GITLEAKS_CONFIG: .gitleaks.toml
           GITLEAKS_ENABLE_COMMENTS: "false"
-      - uses: anchore/scan-action@v6
+      - uses: anchore/scan-action@1638637db639e0ade3258b51db49a9a137574c3e # v6
         with: { path: ".", fail-build: true, severity-cutoff: critical }
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: 22 }
       - run: pnpm install --frozen-lockfile
       - run: pnpm security:dependencies
       - run: pnpm security:licenses
   docker:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    outputs:
+      critical_findings: ${{ steps.scan.outputs.critical_findings }}
     steps:
-      - uses: actions/checkout@v4
-      - run: docker compose build
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: docker compose -p eventclear build
+      - name: Build the standalone staging migration image
+        run: docker build -f infrastructure/docker/migration.Dockerfile -t "eventclear-ci-migration:$GITHUB_SHA" .
+      - name: Build zero-cost combined prototype image
+        run: docker build -f infrastructure/docker/prototype.Dockerfile -t "eventclear-ci-prototype:$GITHUB_SHA" .
+      - name: Verify non-root API and indexer runtime imports
+        run: |
+          docker run --rm --entrypoint python "eventclear-ci-prototype:$GITHUB_SHA" -c 'from eventclear_api.prototype import known_development_addresses; assert len(known_development_addresses()) >= 20'
+          docker run --rm --entrypoint node "eventclear-ci-prototype:$GITHUB_SHA" --import tsx -e 'import("./apps/indexer/src/index.ts").then(() => process.exit(0))'
+      - name: Verify prototype image rejects unconfigured startup
+        run: |
+          if docker run --rm "eventclear-ci-prototype:$GITHUB_SHA"; then
+            echo 'Unconfigured external prototype unexpectedly started'
+            exit 1
+          fi
+      - name: Scan every runtime image for critical vulnerabilities
+        id: scan
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/trivy-cache" "$RUNNER_TEMP/trivy-reports"
+          printf '{}\n' > "$RUNNER_TEMP/trivy-reports/scan-exit-status.json"
+          for service in web api solver indexer migration prototype; do
+            image="eventclear-ci-$service:$GITHUB_SHA"
+            if [ "$service" != migration ] && [ "$service" != prototype ]; then docker tag "eventclear-$service:latest" "$image"; fi
+            status=0
+            docker run --rm \
+              -v /var/run/docker.sock:/var/run/docker.sock \
+              -v "$RUNNER_TEMP/trivy-cache:/cache" \
+              -v "$RUNNER_TEMP/trivy-reports:/reports" \
+              aquasec/trivy:0.67.2@sha256:e2b22eac59c02003d8749f5b8d9bd073b62e30fefaef5b7c8371204e0a4b0c08 \
+              image --cache-dir /cache --db-repository ghcr.io/aquasecurity/trivy-db:2 \
+              --image-src docker --scanners vuln --severity CRITICAL --exit-code 1 \
+              --format json --output "/reports/$service.json" "$image" 2>"$RUNNER_TEMP/trivy-reports/$service.stderr" || status=$?
+            python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d[sys.argv[2]]=int(sys.argv[3]); open(p,"w").write(json.dumps(d))' "$RUNNER_TEMP/trivy-reports/scan-exit-status.json" "$service" "$status"
+          done
+          python3 scripts/ci/summarize-runtime-scans.py "$RUNNER_TEMP/trivy-reports"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: runtime-container-scans
+          path: ${{ runner.temp }}/trivy-reports/*.json
+          if-no-files-found: warn
   linux-reproducibility:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: 22, cache: pnpm }
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with: { python-version: "3.12" }
-      - uses: foundry-rs/foundry-toolchain@v1
+      - uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1
+        with: { version: v1.5.1 }
       - run: cp .env.example .env
       - run: make install
       - run: make test
@@ -93,12 +141,13 @@ jobs:
       - if: always()
         run: docker compose down --volumes
   polygon-fork:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       POLYGON_RPC_URL: ${{ secrets.POLYGON_RPC_URL }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: foundry-rs/foundry-toolchain@v1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1
+        with: { version: v1.5.1 }
       - working-directory: packages/contracts
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -114,7 +163,94 @@ jobs:
             echo "### Polygon fork: SKIPPED_NOT_CONFIGURED" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          forge install OpenZeppelin/openzeppelin-contracts@v5.4.0 foundry-rs/forge-std --no-git
+          forge install OpenZeppelin/openzeppelin-contracts@v5.4.0 foundry-rs/forge-std@v1.9.7 --no-git
           forge test -vvv --match-path "test/fork/*" --fork-url "$POLYGON_RPC_URL" --fork-block-number 90963627
           echo "PASSED: Polygon fork tests executed at block 90963627."
           echo "### Polygon fork: PASSED at block 90963627" >> "$GITHUB_STEP_SUMMARY"
+  staging-automation:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: 22, cache: pnpm }
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: { python-version: "3.12" }
+      - run: pnpm install --frozen-lockfile
+      - run: pip install -e apps/solver -e apps/api pytest cfn-lint
+      - run: cfn-lint infrastructure/aws/bootstrap/template.json infrastructure/aws/staging/template.json
+      - run: node --test tests/staging/*.test.mjs
+      - run: python -m pytest tests/staging/test_staging.py tests/staging/test_prototype.py -q
+      - uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1
+        with: { version: v1.5.1 }
+      - working-directory: packages/contracts
+        run: forge install OpenZeppelin/openzeppelin-contracts@v5.4.0 foundry-rs/forge-std@v1.9.7 --no-git
+      - run: node scripts/aws/test-staging-deployment.mjs
+      - name: Verify repeatable database migrations
+        run: |
+          set -euo pipefail
+          docker run -d --name migration-test -e POSTGRES_PASSWORD=local-test -e POSTGRES_DB=eventclear -p 5439:5432 postgres:17-alpine
+          export DATABASE_URL=postgresql://postgres:local-test@127.0.0.1:5439/eventclear
+          export MIGRATIONS_DIR=infrastructure/docker/postgres/migrations
+          ready=false
+          for attempt in $(seq 1 60); do
+            if python -c 'import os,psycopg; c=psycopg.connect(os.environ["DATABASE_URL"],connect_timeout=1); c.execute("SELECT 1"); c.close()' >/dev/null 2>&1; then ready=true; break; fi
+            sleep 1
+          done
+          test "$ready" = true
+          python scripts/aws/migrate.py
+          python scripts/aws/migrate.py
+          PROTOTYPE_TEST_DATABASE_URL="$DATABASE_URL" python -m pytest tests/staging/test_prototype.py -q
+      - name: Disposable prototype financing, settlement and restart lifecycle
+        env:
+          PROTOTYPE_TEST_DATABASE_URL: postgresql://postgres:local-test@127.0.0.1:5439/eventclear
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/prototype-tls"
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout "$RUNNER_TEMP/prototype-tls/key.pem" -out "$RUNNER_TEMP/prototype-tls/cert.pem" -days 1 -subj /CN=localhost -addext 'subjectAltName=DNS:localhost,IP:127.0.0.1'
+          docker run -d --name prototype-redis-test -p 6389:6379 redis:7-alpine
+          export PROTOTYPE_TEST_TLS_DIR="$RUNNER_TEMP/prototype-tls"
+          export NODE_EXTRA_CA_CERTS="$PROTOTYPE_TEST_TLS_DIR/cert.pem"
+          export SSL_CERT_FILE="$PROTOTYPE_TEST_TLS_DIR/cert.pem"
+          node tests/staging/disposable-prototype-lifecycle.mjs
+      - if: always()
+        run: docker rm -f migration-test prototype-redis-test || true
+  container-scan-summary:
+    name: "Container scan report: ${{ needs.docker.outputs.critical_findings || 'not generated' }}"
+    needs: docker
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo 'Review the Docker check annotations and runtime-container-scans artifact for complete results.'
+  update-prototype-pr:
+    name: Update zero-cost prototype review handoff
+    needs: [web, python, contracts, polygon-fork, docker, supply-chain, linux-reproducibility, staging-automation, container-scan-summary]
+    if: github.event_name == 'pull_request' && github.event.pull_request.number == 10 && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/final-working-prototype'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {ref: '${{ github.event.pull_request.head.sha }}'}
+      - name: Update existing PR only after all validation succeeds
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+          CI_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          gh api repos/unrealwandregime/EventClear/pulls/10 > "$RUNNER_TEMP/prototype-pr.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          pr = json.loads((Path(os.environ['RUNNER_TEMP']) / 'prototype-pr.json').read_text())
+          assert pr['state'] == 'open'
+          assert pr['head']['sha'] == os.environ['EXPECTED_SHA']
+          assert pr['head']['ref'] == 'codex/final-working-prototype'
+          assert pr['head']['repo']['full_name'] == 'unrealwandregime/EventClear'
+          body = Path('docs/PR_10_ZERO_COST_REVIEW.md').read_text()
+          body += '\nValidated release: `' + os.environ['EXPECTED_SHA'] + '`\n\nCI: ' + os.environ['CI_RUN_URL'] + '\n'
+          (Path(os.environ['RUNNER_TEMP']) / 'prototype-pr-update.json').write_text(json.dumps({'title':'Implement zero-cost controlled testnet prototype; retain optional AWS staging','body':body}))
+          PY
+          gh api --method PATCH repos/unrealwandregime/EventClear/pulls/10 --input "$RUNNER_TEMP/prototype-pr-update.json" --jq .html_url

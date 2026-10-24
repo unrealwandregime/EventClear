@@ -1,20 +1,46 @@
 import {
   createPublicClient,
+  defineChain,
   decodeEventLog,
   http,
   parseAbi,
+  toEventSelector,
   type Hex,
   type Log,
 } from "viem";
-import { polygon } from "viem/chains";
 import pg from "pg";
+import { blockRanges } from "./ranges.js";
 import { pathToFileURL } from "node:url";
 import { rebuildProjection, type IndexedEvent } from "./projection.js";
+
+function stagingMetric(name: string, value: number) {
+  if (process.env.EVENTCLEAR_MODE === "testnet-prototype") {
+    console.log(JSON.stringify({event:"indexer_metric",metric:name,value}));
+    return;
+  }
+  if (process.env.EVENTCLEAR_MODE !== "staging") return;
+  const stack = process.env.STAGING_STACK_NAME;
+  if (!stack) throw new Error("STAGING_METRIC_DIMENSION_REQUIRED");
+  console.log(JSON.stringify({ _aws: { Timestamp: Date.now(), CloudWatchMetrics: [{ Namespace: "EventClear/Staging", Dimensions: [["Stack"]], Metrics: [{ Name: name, Unit: "Count" }] }] }, Stack: stack, [name]: value }));
+}
 
 const confirmations = BigInt(process.env.INDEXER_CONFIRMATIONS ?? "64");
 const chainId = Number(process.env.CHAIN_ID ?? "137");
 const rpcUrls = (process.env.POLYGON_RPC_URLS ?? "").split(",").map((value) => value.trim()).filter(Boolean);
+if (process.env.EVENTCLEAR_MODE === "staging" && ([1,137,31337,1337].includes(chainId) || process.env.ENABLE_MAINNET_EXECUTION === "true" || process.env.STAGING_TEST_ASSETS_ONLY !== "true")) throw new Error("STAGING_CHAIN_GUARD_FAILED");
+if (process.env.EVENTCLEAR_MODE === "testnet-prototype" && (
+  ![80002,11155111].includes(chainId) || process.env.TESTNET_ASSETS_ONLY !== "true" ||
+  process.env.ENABLE_MAINNET_EXECUTION !== "false" || process.env.PUBLIC_CAPITAL_ACTIVATED !== "false" ||
+  process.env.PROTOTYPE_MAX_MONTHLY_COST_USD !== "0" || !process.env.DATABASE_URL || !rpcUrls.length || rpcUrls.some(url => !url.startsWith("https://"))
+)) throw new Error("PROTOTYPE_INDEXER_GUARD_FAILED");
+const configuredChain = defineChain({ id: chainId, name: "Configured EventClear network", nativeCurrency: { name: "Gas", symbol: "GAS", decimals: 18 }, rpcUrls: { default: { http: rpcUrls } } });
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+// pg emits an idle-client error with its Client object. Never let Node print
+// that object: it contains connection credentials.
+pool.on("error", () => {
+  console.error(JSON.stringify({event:"indexer_database_connection_failed"}));
+  process.exit(1);
+});
 const addresses = [
   process.env.VAULT_ADDRESS,
   process.env.RELATIONSHIP_REGISTRY_ADDRESS,
@@ -58,7 +84,7 @@ const stringify = (value: unknown) =>
 
 function rpcClient(index: number) {
   if (!rpcUrls[index]) throw new Error("RPC_FAILOVER_CONFIGURED");
-  return createPublicClient({ chain: polygon, transport: http(rpcUrls[index], { timeout: 15_000 }) });
+  return createPublicClient({ chain: configuredChain, transport: http(rpcUrls[index], { timeout: 15_000 }) });
 }
 
 async function withRpc<T>(operation: (client: ReturnType<typeof rpcClient>) => Promise<T>): Promise<T> {
@@ -71,8 +97,10 @@ async function withRpc<T>(operation: (client: ReturnType<typeof rpcClient>) => P
         "INSERT INTO rpc_health(rpc_url_hash,chain_id,latency_ms,healthy,observed_at) VALUES(md5($1),$2,$3,true,now())",
         [rpcUrls[index], chainId, Date.now() - started],
       );
+      if (index > 0) stagingMetric("RpcFallback", 1);
       return result;
     } catch (error) {
+      stagingMetric("RpcFailures", 1);
       lastError = error;
       await pool.query(
         "INSERT INTO rpc_health(rpc_url_hash,chain_id,latency_ms,healthy,error_code,observed_at) VALUES(md5($1),$2,$3,false,$4,now())",
@@ -93,12 +121,12 @@ async function checkpoint(): Promise<Checkpoint> {
 }
 
 export function decodeProtocolLog(log: Pick<Log, "data" | "topics">) {
-  return decodeEventLog({ abi: protocolAbi, data: log.data, topics: log.topics, strict: false });
+  return decodeEventLog({ abi: protocolAbi, data: log.data, topics: log.topics, strict: true });
 }
 
 async function ensureCanonicalCheckpoint(): Promise<bigint> {
   const stored = await checkpoint();
-  if (!stored) return BigInt(process.env.INDEXER_START_BLOCK ?? "0");
+  if (!stored) {const start = BigInt(process.env.INDEXER_START_BLOCK ?? "0"); return start > 0n ? start - 1n : 0n;}
   const current = await withRpc((client) => client.getBlock({ blockNumber: stored.blockNumber }));
   if (current.hash === stored.blockHash) return stored.blockNumber;
 
@@ -117,7 +145,7 @@ async function ensureCanonicalCheckpoint(): Promise<bigint> {
        ON CONFLICT(chain_id) DO UPDATE SET block_number=EXCLUDED.block_number,block_hash=EXCLUDED.block_hash,updated_at=now()`,
       [chainId, rollbackTo.toString(), canonical.hash],
     );
-    await rebuildReadModels(database);
+    await rebuildReadModels(database, rollbackTo);
     await database.query("COMMIT");
   } catch (error) {
     await database.query("ROLLBACK");
@@ -128,7 +156,7 @@ async function ensureCanonicalCheckpoint(): Promise<bigint> {
   return rollbackTo;
 }
 
-async function rebuildReadModels(database: pg.PoolClient) {
+async function rebuildReadModels(database: pg.PoolClient, blockNumber: bigint) {
   const result = await database.query(
     `SELECT block_number,transaction_hash,log_index,event_name,payload,removed
      FROM chain_events WHERE chain_id=$1 ORDER BY block_number,log_index`,
@@ -157,6 +185,7 @@ async function rebuildReadModels(database: pg.PoolClient) {
               abi: parseAbi(["function payoutDenominator(bytes32) view returns (uint256)"]),
               functionName: "payoutDenominator",
               args: [conditionId],
+              blockNumber,
             })
           )
         ),
@@ -166,7 +195,40 @@ async function rebuildReadModels(database: pg.PoolClient) {
     }
   }
   const fundingPoolAddress = process.env.FUNDING_POOL_ADDRESS as `0x${string}` | undefined;
-  if (fundingPoolAddress) {
+  const poolCode = fundingPoolAddress ? await withRpc(client => client.getCode({address:fundingPoolAddress,blockNumber})) : undefined;
+  if (fundingPoolAddress && poolCode && poolCode !== "0x") {
+    // Read at the exact projected checkpoint, never a newer unindexed state.
+    const eventLedger: Record<string, string> = {
+      outstandingAdvanceCostBasisAtomic: "outstandingAdvanceCostBasis",
+      outstandingQuotedFeesAtomic: "outstandingQuotedFees",
+      realizedGrossFinancingReturnAtomic: "realizedGrossFinancingReturn",
+      realizedLpYieldAtomic: "realizedLpYield",
+      realizedOriginationFeesAtomic: "realizedOriginationFees",
+      realizedProtocolYieldFeesAtomic: "realizedProtocolYieldFees",
+      refundedQuotedFeesAtomic: "refundedQuotedFees",
+      realizedLossAtomic: "realizedLoss",
+    };
+    const snapshots: Record<string, string> = {
+      liquidAtomic: "liquidAssets", totalAssetsAtomic: "totalAssets",
+      bookTotalAssetsAtomic: "bookTotalAssets", depositCapAtomic: "depositCap",
+      perBundleCapAtomic: "perBundleCap", utilizationBps: "utilizationBps",
+      cumulativeNetDepositsAtomic: "cumulativeNetDeposits",
+      cumulativeWithdrawalsAtomic: "cumulativeWithdrawals",
+    };
+    await Promise.all(Object.entries({...eventLedger, ...snapshots}).map(async ([field, getter]) => {
+      const value = await withRpc(client => client.readContract({
+        address: fundingPoolAddress,
+        abi: parseAbi([`function ${getter}() view returns (uint256)`]),
+        functionName: getter, blockNumber,
+      }));
+      if (field in eventLedger) {
+        if (String(projection.pool[field]) !== String(value)) {
+          stagingMetric("IndexerReconciliationErrors", 1);
+          throw new Error("INDEXER_ACCOUNTING_RECONCILIATION_FAILED");
+        }
+      } else projection.pool[field] = value.toString();
+    }));
+    projection.pool.snapshotBlock = blockNumber.toString();
     for (const [owner, account] of projection.poolAccounts) {
       account.availableWithdrawalAtomic = (
         await withRpc((client) =>
@@ -175,11 +237,14 @@ async function rebuildReadModels(database: pg.PoolClient) {
             abi: parseAbi(["function maxWithdraw(address) view returns (uint256)"]),
             functionName: "maxWithdraw",
             args: [owner as `0x${string}`],
+            blockNumber,
           })
         )
       ).toString();
     }
   }
+  // Per-RPC diagnostics must not grow without bound on a free database.
+  await database.query("DELETE FROM rpc_health WHERE observed_at < now() - interval '24 hours'");
   await database.query(
     "DELETE FROM api_read_models WHERE kind IN ('bundle','claim','event','pool_state','pool_account')",
   );
@@ -215,7 +280,15 @@ async function rebuildReadModels(database: pg.PoolClient) {
   );
 }
 
+const supportedTopics = new Set(protocolAbi.filter(entry => entry.type === "event").map(entry => toEventSelector(entry)));
+export function isProtocolLog(log: Pick<Log, "topics">): boolean {
+  return Boolean(log.topics[0] && supportedTopics.has(log.topics[0]));
+}
+
 async function persistLog(database: pg.PoolClient, log: Log) {
+  // ERC20 share Transfer and Approval are valid logs outside this read model.
+  // Preserve supported role events and quarantine malformed supported events.
+  if (!isProtocolLog(log)) return;
   try {
     const decoded = decodeProtocolLog(log);
     await database.query(
@@ -251,7 +324,7 @@ async function indexRange(fromBlock: bigint, toBlock: bigint) {
   try {
     await database.query("BEGIN");
     for (const log of logs) await persistLog(database, log);
-    await rebuildReadModels(database);
+    await rebuildReadModels(database, toBlock);
     const block = await withRpc((client) => client.getBlock({ blockNumber: toBlock }));
     await database.query(
       `INSERT INTO indexer_checkpoints(chain_id,block_number,block_hash,updated_at) VALUES($1,$2,$3,now())
@@ -276,8 +349,10 @@ async function run() {
   for (;;) {
     const from = (await ensureCanonicalCheckpoint()) + 1n;
     const head = await safeHead();
-    if (from <= head) await indexRange(from, head);
-    await new Promise((resolve) => setTimeout(resolve, 4_000));
+    stagingMetric("IndexerLag", Number(head >= from ? head - from + 1n : 0n));
+    for (const [start,end] of blockRanges(from,head,BigInt(process.env.INDEXER_BLOCK_BATCH_SIZE ?? "500"))) await indexRange(start,end);
+    stagingMetric("IndexerLag", 0);
+    await new Promise((resolve) => setTimeout(resolve, process.env.EVENTCLEAR_MODE === "testnet-prototype" ? 8_000 : 4_000));
   }
 }
 
@@ -309,7 +384,12 @@ async function status() {
 
 export async function main(args = process.argv.slice(2)) {
   const command = args[0] ?? "run";
-  if (command === "run") await run();
+  if (command === "health") {
+    const stored = await checkpoint();
+    const head = await safeHead();
+    if (!stored || head - stored.blockNumber > 20n) throw new Error("INDEXER_LAG");
+    console.log("Indexer checkpoint healthy");
+  } else if (command === "run") await run();
   else if (command === "backfill") {
     const fromFlag = args.indexOf("--from-block");
     const from = BigInt(fromFlag >= 0 ? args[fromFlag + 1] : "0");
@@ -321,5 +401,5 @@ export async function main(args = process.argv.slice(2)) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  await main();
+  try { await main(); } catch { stagingMetric("TaskCrash", 1); throw new Error("INDEXER_OPERATION_FAILED"); }
 }

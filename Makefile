@@ -3,9 +3,10 @@ PYTHON ?= python
 
 .PHONY: install dev stop reset seed test test-contracts test-api-contract-integration test-solver test-api test-indexer test-e2e test-fork lint typecheck security deploy-local demo-lifecycle
 install:
-	$(PNPM) install
+	$(PNPM) install --frozen-lockfile
 	$(PYTHON) -m pip install -e apps/solver -e apps/api pytest
-	cd packages/contracts && forge install OpenZeppelin/openzeppelin-contracts@v5.4.0 foundry-rs/forge-std --no-git
+	cd packages/contracts && { test -f lib/openzeppelin-contracts/contracts/token/ERC20/ERC20.sol || forge install OpenZeppelin/openzeppelin-contracts@v5.4.0 --no-git; }
+	cd packages/contracts && { test -f lib/forge-std/src/Test.sol || forge install foundry-rs/forge-std@v1.9.7 --no-git; }
 
 dev:
 	docker compose up --build

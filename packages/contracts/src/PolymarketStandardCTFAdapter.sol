@@ -12,9 +12,9 @@ import {
 /// @notice Canonically named v1 adapter for standard binary Polymarket CTF positions.
 contract PolymarketStandardCTFAdapter is PolymarketStandardAdapter {
     constructor(
-        IPolymarketConditionalTokens conditionalTokens,
-        IPolymarketCollateralToken collateral,
-        IERC20 usdce,
-        IPolymarketOfficialCTFAdapter officialAdapter
-    ) PolymarketStandardAdapter(conditionalTokens, collateral, usdce, officialAdapter) {}
+        IPolymarketConditionalTokens conditionalTokens_,
+        IPolymarketCollateralToken collateral_,
+        IERC20 usdce_,
+        IPolymarketOfficialCTFAdapter officialAdapter_
+    ) PolymarketStandardAdapter(conditionalTokens_, collateral_, usdce_, officialAdapter_) {}
 }

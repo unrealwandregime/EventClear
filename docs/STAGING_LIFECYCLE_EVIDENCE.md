@@ -2,12 +2,12 @@
 
 Status: **NOT RUN REMOTELY**
 
-The deployed-contract Anvil integration test covers quote preflight, genuine
-EIP-712 quote issuance, approval and bundle-opening simulation/submission
-against actual contracts. It is CI evidence, not remote staging evidence.
+The local API-to-Anvil tests, local full lifecycle and local staging deployment
+are genuine local evidence only. The remote runner is
+`scripts/run-remote-staging-lifecycle.mjs`; its protected workflow also runs the
+remote UI, restart/Redis/S3/rollback and public isolation checks.
 
-A remote record must not be completed until it contains the controlled wallet,
-analysis and quote identifiers, proof hash, approval/open/settlement/principal
-and residual transaction hashes, onchain bundle ID, balances, pool/treasury
-reconciliation, and indexer confirmation timestamps. Secret keys must never be
-included.
+This record is replaced only after successful actual remote execution. It must
+contain the Git SHA, region, chain, manifest/signer, proof/analysis/quote IDs,
+real test-asset transaction hashes, bundle, settlement/redemptions, accounting,
+checkpoint and restart results, and UTC timestamps. No secret values belong here.

@@ -1,45 +1,81 @@
-# External staging credential checklist
+# Canonical controlled staging input checklist
 
-External staging is blocked until all items below exist. Values are GitHub
-Actions environment secrets in the protected `staging` environment; never
-commit them.
+**OPTIONAL FUTURE FUNDED STAGING / PRODUCTION-LIKE INFRASTRUCTURE.**
+This is not the canonical prototype path. The owner has authorized no expense.
+For the $0 path use `docs/ZERO_COST_DEPLOYMENT.md` (repository root).
 
-- `AWS_ROLE_ARN`: GitHub OIDC role allowed to deploy the staging stack and push
-  images.
-- `AWS_REGION`: one approved AWS region.
-- `AWS_ACCOUNT_ID`: account that owns the isolated staging resources.
-- `STAGING_STACK_NAME`: CloudFormation stack name.
-- `STAGING_RPC_PRIMARY` and `STAGING_RPC_FALLBACK`: authenticated HTTPS
-  endpoints for one persistent non-137 chain.
-- `STAGING_CHAIN_ID`: stable chain ID, explicitly not `137`.
-- `STAGING_DEPLOYER_PRIVATE_KEY`: encrypted, staging-only deployment key used
-  only for the explicitly approved contract action. A KMS-backed deployer may
-  replace this after the Foundry signing path supports it.
-- `STAGING_ADMIN_ADDRESS`, `STAGING_LP_ADDRESS`, `STAGING_TEST_EOA`: distinct
-  controlled addresses.
-- `RISK_SIGNER_KMS_KEY_ID`, `RISK_SIGNER_ADDRESS`: AWS KMS secp256k1 signing key
-  and its verified Ethereum address.
-- `STAGING_RELATIONSHIP_HASH`, `STAGING_RULES_HASH`,
-  `STAGING_EARLIEST_RESOLUTION`, `STAGING_LATEST_RESOLUTION`: reviewed test-only
-  relationship metadata.
-- `STAGING_ALERT_TOPIC_ARN`: SNS topic with a confirmed real notification
-  subscription.
-- `STAGING_ECS_NETWORK_CONFIGURATION`: AWS CLI Fargate network JSON for the
-  private migration task.
-- `STAGING_API_HEALTH_URL` and `STAGING_WEB_URL`: access-controlled HTTPS
-  endpoints used by post-deploy health checks.
-- `STAGING_HOSTED_ZONE_ID` and `STAGING_DOMAIN`: Route 53 zone and dedicated
-  access-controlled staging hostname.
 
-Minimum GitHub action:
+Never paste secrets into chat, commit them, or put them in frontend build
+variables. Use dedicated staging-only wallets with test assets and faucet gas;
+never use a production wallet. A key's past usage cannot be inferred from its
+bytes: operator provenance is required in addition to the code's chain and
+known-development-key rejection. The workflow rejects the published Anvil and
+local-example keys and derives/pins actor addresses before use.
+
+Create GitHub environment `staging`, require reviewers, and restrict deployment
+refs to the `master` branch using a custom deployment policy. The workflow
+checks that the environment already exists with required reviewers before any
+environment-bound job; it will not auto-create an unprotected environment.
+The repository owner must do this: the current integration receives HTTP 403
+when creating/protecting environments. Normal AWS access uses short-lived GitHub OIDC. See
+`infrastructure/aws/README.md` for the one-time bootstrap command.
+
+| Value | Classification | Storage / derivation | Purpose |
+| --- | --- | --- | --- |
+| One-time AWS account access | USER INPUT; SECRET/authentication | AWS-supported account login on operator machine; never repository secrets | Create OIDC provider/roles |
+| Existing GitHub OIDC provider ARN | DERIVED; NON-SECRET | Inspect IAM; supply bootstrap parameter when provider already exists | Avoid duplicate provider creation |
+| `AWS_REGION` | USER INPUT; NON-SECRET | GitHub staging **variable** | Select region; no region is assumed |
+| `STAGING_BUDGET_USD` | USER INPUT; NON-SECRET | GitHub staging **variable** | Explicit positive monthly alert budget; not a hard spend cap |
+| `ALLOW_AWS_PROVISION` | USER INPUT; NON-SECRET | Workflow `allow_aws_provision` checkbox; mapped to literal `true` only when selected | Permit billable provisioning |
+| `STAGING_DOMAIN` | USER INPUT; NON-SECRET | GitHub staging **variable**; owned dedicated hostname | HTTPS certificate and DNS |
+| `STAGING_HOSTED_ZONE_ID` | DERIVED or USER INPUT override; NON-SECRET | Route53 longest unambiguous public suffix match; optional GitHub variable override | Use the owned DNS zone |
+| `STAGING_ALERT_EMAIL` | USER INPUT; NON-SECRET contact | GitHub staging **variable** | Budget notice and real SNS subscription; confirm the email |
+| `STAGING_CHAIN_ID` | USER INPUT; NON-SECRET | GitHub staging **variable** | Explicit supported persistent test chain; no default or mainnet fallback |
+| `STAGING_RPC_PRIMARY`, `STAGING_RPC_FALLBACK` | USER INPUT; SECRET | Protected GitHub staging **secrets** | Two distinct authenticated HTTPS RPC URLs for the same chain |
+| `STAGING_DEPLOYER_PRIVATE_KEY` | USER INPUT; SECRET | Protected GitHub staging **secret** | Deploy test-only mock/protocol contracts and resolve test oracle |
+| `STAGING_LP_PRIVATE_KEY` | USER INPUT; SECRET | Protected GitHub staging **secret** | Approve/deposit test collateral; trigger pool principal redemption |
+| `STAGING_TEST_EOA_PRIVATE_KEY` | USER INPUT; SECRET | Protected GitHub staging **secret** | SIWE, wallet authorization, position approval, bundle opening and residual redemption |
+| `STAGING_ADMIN_ADDRESS` | USER INPUT; NON-SECRET | GitHub staging **variable**, separate from the three automated actors | Own protocol administration after deployer renounces roles; no admin key requested |
+| `STAGING_STACK_NAME` | USER INPUT; NON-SECRET | GitHub staging **variable**, prefix `eventclear-staging` | Scope resources and operations; separate from bootstrap stack |
+| `AWS_ROLE_ARN` | GENERATED BY AWS; NON-SECRET | Bootstrap output → GitHub staging **variable** | GitHub OIDC deploy role |
+| `AWS_STACK_EXECUTION_ROLE_ARN` | GENERATED BY AWS; NON-SECRET | Bootstrap output → GitHub staging **variable** | Separate CloudFormation execution role |
+| `AWS_ACCOUNT_ID` | DERIVED; NON-SECRET | `aws sts get-caller-identity`; never manually stored | ECR/account identity |
+| ECS/network/ECR/ALB/RDS/Redis/S3/SNS identifiers and URLs | GENERATED BY AWS; NON-SECRET metadata | Validated CloudFormation outputs | Deploy services and check readiness; no manual copy to GitHub secrets |
+| Database password, Redis auth | GENERATED BY AWS; SECRET | Secrets Manager generated database secret and Secrets Manager generated secret | Injected only into scoped ECS tasks |
+| Staging access token, admin token, session secret | GENERATED BY AWS/DEPLOYMENT; SECRET | Generated runtime Secrets Manager secret; ECS secret references | Controlled access and API/session protection |
+| KMS key ARN | GENERATED BY AWS; NON-SECRET | CloudFormation output | Non-exportable risk signing |
+| `RISK_SIGNER_ADDRESS` | DERIVED; NON-SECRET | KMS public key → checksummed address → real signature recovery | Contract signer and API configuration; never manually typed |
+| Deployer/LP/tester addresses | DERIVED; NON-SECRET | Private key derivation, separate identities, evidence pin | Verify the correct dedicated actors |
+| Relationship/rules hashes and resolution window | GENERATED BY DEPLOYMENT; NON-SECRET | Canonical checked-in source and solver-verified future window | Register reviewed test relationship; no invented operator hashes |
+| Contract addresses, bytecode hashes, manifest hash | GENERATED BY DEPLOYMENT; NON-SECRET | Successful receipts + two RPC state checks + sanitized Actions artifact | Runtime metadata and evidence PR |
+| `STAGING_ALERT_DELIVERY_REFERENCE`, `STAGING_ALERT_RECEIVED_AT` | USER INPUT after real receipt; NON-SECRET evidence | Protected operator confirmation; sanitized monitoring record | Distinguish real delivery from successful SNS API submission |
+
+Only five normal deployment secrets are required: two RPC URLs and three
+staging-only test keys. The administrator's address is not a signing key.
+Do not add AWS permanent access keys, DB/cache passwords, signer addresses,
+service URLs, relationship hashes, or infrastructure outputs as GitHub secrets.
+
+Supported test-network metadata lives in `config/staging/networks.json`.
+Preflight fetches the current official information page and checks both RPCs,
+common block hash/code, and block advancement. Failure to verify official
+information is a blocker, never permission to fall back to mainnet.
+
+Minimum resume after inputs exist and implementation is reviewed on the default
+branch (replace the SHA and contract evidence run ID with actual values):
 
 ```bash
-gh api --method PUT repos/unrealwandregime/EventClear/environments/staging
-gh secret set AWS_ROLE_ARN --env staging --repo unrealwandregime/EventClear
-gh secret set AWS_REGION --env staging --repo unrealwandregime/EventClear
-gh secret set AWS_ACCOUNT_ID --env staging --repo unrealwandregime/EventClear
-gh secret set STAGING_STACK_NAME --env staging --repo unrealwandregime/EventClear
+gh workflow run staging-deploy.yml --repo unrealwandregime/EventClear \
+  -f action=provision-infra -f release_ref="$REVIEWED_RELEASE_SHA" \
+  -f allow_aws_provision=true
+gh workflow run staging-deploy.yml --repo unrealwandregime/EventClear \
+  -f action=deploy-contracts -f release_ref="$REVIEWED_RELEASE_SHA"
+gh workflow run staging-deploy.yml --repo unrealwandregime/EventClear \
+  -f action=deploy-services -f release_ref="$REVIEWED_RELEASE_SHA" \
+  -f evidence_run_id="$CONTRACT_DEPLOYMENT_RUN_ID"
+gh workflow run staging-deploy.yml --repo unrealwandregime/EventClear \
+  -f action=remote-lifecycle -f release_ref="$REVIEWED_RELEASE_SHA" \
+  -f evidence_run_id="$CONTRACT_DEPLOYMENT_RUN_ID"
 ```
 
-Set the remaining values through the same hidden prompt form. Configure the
-`staging` environment with required reviewers before any deploy action.
+Commands must not claim completion until the workflow evidence proves remote
+lifecycle, persistence, rollback, public isolation, and actual alert delivery.

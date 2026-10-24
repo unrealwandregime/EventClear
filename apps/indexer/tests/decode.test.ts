@@ -22,3 +22,17 @@ test("decodes a bundle settlement without losing integer precision", () => {
   assert.equal(decoded.args.principalAllocation, 100_000_000n);
   assert.equal(decoded.args.residualAllocation, 80_000_000n);
 });
+
+test("ERC20 share transfers are ignored while supported role and financing events remain indexed", async()=>{
+ const {isProtocolLog}=await import("../src/index.js");
+ const {toEventSelector}=await import("viem");
+ assert.equal(isProtocolLog({topics:[toEventSelector("Transfer(address,address,uint256)")]}),false);
+ assert.equal(isProtocolLog({topics:[toEventSelector("RoleGranted(bytes32,address,address)")]}),true);
+ assert.equal(isProtocolLog({topics:[toEventSelector("BundleOpened(uint256,address,bytes32)")]}),true);
+});
+
+test("malformed supported events fail strict decoding instead of becoming partial financing records",async()=>{
+ const {decodeProtocolLog}=await import("../src/index.js");
+ const {toEventSelector}=await import("viem");
+ assert.throws(()=>decodeProtocolLog({topics:[toEventSelector("BundleOpened(uint256,address,bytes32)")],data:"0x"}));
+});

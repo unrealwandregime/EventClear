@@ -59,7 +59,7 @@ contract MockConditionalTokens is ERC1155 {
     function redeemPositions(IERC20 collateralToken, bytes32, bytes32 conditionId, uint256[] calldata indexSets)
         external
     {
-        uint256 payout;
+        uint256 payout = 0;
         for (uint256 i; i < indexSets.length; ++i) {
             uint256 tokenId = getPositionId(collateralToken, getCollectionId(bytes32(0), conditionId, indexSets[i]));
             uint256 amount = balanceOf(msg.sender, tokenId);

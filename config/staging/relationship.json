@@ -1,0 +1,40 @@
+{
+  "schema": "CRYPTO_THRESHOLD_V1",
+  "testAssetsOnly": true,
+  "review": "Protocol supported binary threshold template; test oracle outcomes only; no real-world price assertion.",
+  "asset": "STAGING_BTC",
+  "thresholds": [
+    100,
+    150
+  ],
+  "conditions": [
+    "0x1111111111111111111111111111111111111111111111111111111111111111",
+    "0x2222222222222222222222222222222222222222222222222222222222222222"
+  ],
+  "tokens": {
+    "lowerYes": "1",
+    "lowerNo": "2",
+    "upperYes": "3",
+    "upperNo": "4"
+  },
+  "ruleDocument": {
+    "observation": "synthetic closing price",
+    "resolution": "controlled mock oracle",
+    "cancellation": "HALF_HALF",
+    "fractional": "USE_REPORTED_PAYOUT"
+  },
+  "payouts": [
+    [
+      "0",
+      "1000000"
+    ],
+    [
+      "1000000",
+      "1000000"
+    ],
+    [
+      "1000000",
+      "0"
+    ]
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "advisoryId": "GHSA-vfj7-8cjw-p6xm",
+  "package": "braces@3.0.3",
+  "patchSha256": "ec63755988090a92b77e125a0e9aa4400d316ddc5911c085d4054616dd4a9c1f",
+  "parserSha256": "e464e7d68dd2717342f25874124d8dee91c61b769320badfa6dd26b2d5c593ac",
+  "expires": "2026-11-23",
+  "reason": "Bound AST construction depth to 64 before recursive walkers; exact installed source and adversarial regression are verified on every policy check. Remove when an upstream patched release is available."
+}

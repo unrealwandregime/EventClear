@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { verifyBracesMitigation } from "./check-braces-mitigation.mjs";
 
 const severityRank = { info: 0, low: 1, moderate: 2, high: 3, critical: 4 };
 const runJson = (args) => {
@@ -12,7 +13,12 @@ const runJson = (args) => {
     maxBuffer: 32 * 1024 * 1024,
   });
   if (!result.stdout) throw new Error(result.stderr || `pnpm ${args.join(" ")} failed`);
-  return JSON.parse(result.stdout);
+  const parsed = JSON.parse(result.stdout);
+  if (![0, 1].includes(result.status) || parsed.error || !parsed.advisories || !parsed.metadata?.vulnerabilities) {
+    throw new Error("AUDIT_RESULT_INVALID_OR_UNAVAILABLE");
+  }
+  if (parsed.muted?.length) throw new Error("AUDIT_MUTED_FINDINGS_REQUIRE_REVIEW");
+  return parsed;
 };
 
 const production = runJson(["audit", "--prod", "--json"]);
@@ -45,7 +51,12 @@ const allowed = new Map(
   }),
 );
 const complete = runJson(["audit", "--json"]);
+const verifiedMitigations = new Set([verifyBracesMitigation()]);
 const unapproved = Object.values(complete.advisories ?? {}).filter((advisory) => {
+  if (advisory.github_advisory_id === "GHSA-vfj7-8cjw-p6xm" && advisory.module_name === "braces" && !productionAdvisoryIds.has(advisory.github_advisory_id)) {
+    verifiedMitigations.add(verifyBracesMitigation());
+    return false;
+  }
   if (severityRank[advisory.severity] < severityRank.high) return false;
   // The --prod audit is the cross-platform source of truth for reachability.
   // pnpm's per-finding `dev` flag differs across platforms for the same lockfile.
@@ -60,5 +71,5 @@ if (unapproved.length) {
   );
 }
 console.log(
-  `Dependency policy passed; production high/critical: 0, approved development exceptions: ${allowed.size}.`,
+  `Dependency policy passed; production high/critical: 0, approved development exceptions: ${allowed.size}; source-verified development mitigations: ${verifiedMitigations.size}.`,
 );

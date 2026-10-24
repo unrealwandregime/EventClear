@@ -1,0 +1,118 @@
+name: Zero-cost testnet prototype
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        type: choice
+        required: true
+        options: [preflight, deploy-contracts, remote-lifecycle, health]
+      release_ref:
+        description: Reviewed full SHA on master; never a mutable image tag
+        type: string
+        required: true
+      evidence_run_id:
+        description: Successful prototype contract deployment run
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: eventclear-zero-cost-prototype
+  cancel-in-progress: false
+jobs:
+  protection:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require existing protected prototype environment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          safe="$(gh api repos/unrealwandregime/EventClear/environments/prototype --jq '(.protection_rules // [] | any(.type == "required_reviewers" and (.reviewers | length) > 0)) and .deployment_branch_policy.custom_branch_policies')"
+          test "$safe" = true
+          master="$(gh api repos/unrealwandregime/EventClear/environments/prototype/deployment-branch-policies --jq '.branch_policies | any(.name == "master" and .type == "branch")')"
+          test "$master" = true
+  execute:
+    needs: protection
+    runs-on: ubuntu-24.04
+    environment: prototype
+    timeout-minutes: 90
+    env:
+      EVENTCLEAR_MODE: testnet-prototype
+      PROTOTYPE_MAX_MONTHLY_COST_USD: '0'
+      TESTNET_ASSETS_ONLY: 'true'
+      ENABLE_MAINNET_EXECUTION: 'false'
+      PUBLIC_CAPITAL_ACTIVATED: 'false'
+      CHAIN_ID: ${{ vars.PROTOTYPE_CHAIN_ID }}
+      PROTOTYPE_ADMIN_ADDRESS: ${{ vars.PROTOTYPE_ADMIN_ADDRESS }}
+      PROTOTYPE_URL: ${{ vars.PROTOTYPE_URL }}
+      PROTOTYPE_PREVIOUS_SHA: ${{ vars.PROTOTYPE_PREVIOUS_SHA }}
+      RPC_REDUNDANCY_DEGRADED: ${{ vars.RPC_REDUNDANCY_DEGRADED }}
+      RPC_PRIMARY: ${{ secrets.RPC_PRIMARY }}
+      RPC_FALLBACK: ${{ secrets.RPC_FALLBACK }}
+      PROTOTYPE_DEPLOYER_PRIVATE_KEY: ${{ secrets.PROTOTYPE_DEPLOYER_PRIVATE_KEY }}
+      PROTOTYPE_LP_PRIVATE_KEY: ${{ secrets.PROTOTYPE_LP_PRIVATE_KEY }}
+      PROTOTYPE_TESTER_PRIVATE_KEY: ${{ secrets.PROTOTYPE_TESTER_PRIVATE_KEY }}
+      RISK_SIGNER_PRIVATE_KEY: ${{ secrets.RISK_SIGNER_PRIVATE_KEY }}
+      STAGING_ACCESS_TOKEN: ${{ secrets.PROTOTYPE_ACCESS_TOKEN }}
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ vars.RENDER_SERVICE_ID }}
+      GH_TOKEN: ${{ github.token }}
+      EVIDENCE_RUN_ID: ${{ inputs.evidence_run_id }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {ref: '${{ inputs.release_ref }}', fetch-depth: 0}
+      - name: Verify immutable reviewed release
+        env:
+          RELEASE_SHA: ${{ inputs.release_ref }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+          git fetch origin master
+          git merge-base --is-ancestor HEAD origin/master
+          conclusion="$(gh run list --repo unrealwandregime/EventClear --workflow ci.yml --commit "$RELEASE_SHA" --status success --json conclusion --jq 'length')"
+          test "$conclusion" -gt 0
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: {node-version: 22, cache: pnpm}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with: {python-version: '3.12'}
+      - uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf
+        with: {version: v1.5.1}
+      - run: make install
+      - name: Validate isolated signers and current public test chain
+        run: node --input-type=module -e 'import {stagingCompatibility} from "./scripts/prototype/environment.mjs"; import {validateChain} from "./scripts/prototype/validate-chain.mjs"; stagingCompatibility(); await validateChain();'
+      - if: inputs.action == 'deploy-contracts'
+        run: |
+          node scripts/prototype/deploy-contracts.mjs
+          node scripts/prototype/host-config.mjs
+      - if: inputs.action == 'deploy-contracts'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: prototype-contract-evidence
+          if-no-files-found: error
+          retention-days: 90
+          path: |
+            config/contracts/testnet-prototype.json
+            config/staging/deployed.json
+            outputs/prototype/contracts.json
+            outputs/prototype/host-public-config.json
+            docs/TESTNET_PROTOTYPE_DEPLOYMENT.md
+      - if: inputs.action == 'remote-lifecycle'
+        run: |
+          node scripts/prototype/restore-evidence.mjs
+          pnpm exec playwright install --with-deps chromium
+          node scripts/run-testnet-prototype-lifecycle.mjs
+          node scripts/revalidate-public.mjs
+      - if: inputs.action == 'health'
+        run: node scripts/prototype/health.mjs
+      - if: inputs.action == 'remote-lifecycle'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: prototype-lifecycle-evidence
+          if-no-files-found: error
+          path: |
+            outputs/prototype/*.json
+            outputs/staging/ui-*.json
+            docs/TESTNET_PROTOTYPE_EVIDENCE.md

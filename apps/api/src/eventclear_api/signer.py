@@ -57,17 +57,25 @@ def _recoverable_signature(
 
 def sign_typed_data(message: SignableMessage, settings: Settings) -> bytes:
     if settings.signer_backend == "local":
+        if settings.normalized_mode not in {"local", "test", "testnet-prototype"}:
+            raise RuntimeError("LOCAL_SIGNER_MODE_PROHIBITED")
         return Account.sign_message(message, private_key=settings.signer_key).signature
 
     import boto3
 
     digest = typed_data_digest(message)
     kms = boto3.client("kms", region_name=settings.signer_kms_region)
-    response = kms.sign(
-        KeyId=settings.signer_kms_key_id,
-        Message=digest,
-        MessageType="DIGEST",
-        SigningAlgorithm="ECDSA_SHA_256",
-    )
+    try:
+        response = kms.sign(
+            KeyId=settings.signer_kms_key_id,
+            Message=digest,
+            MessageType="DIGEST",
+            SigningAlgorithm="ECDSA_SHA_256",
+        )
+    except Exception as exc:
+        from .telemetry import emit
+
+        emit(SignerError=1)
+        raise RuntimeError("KMS_OPERATION_FAILED") from exc
     r, s = _decode_der_signature(bytes(response["Signature"]))
     return _recoverable_signature(digest, r, s, settings.signer_address)

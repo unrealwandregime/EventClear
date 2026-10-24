@@ -1,0 +1,12 @@
+{
+  "11155111": {
+    "name": "Ethereum Sepolia",
+    "officialInformation": "https://github.com/ethereum/go-ethereum/blob/master/params/chainspecs/sepolia.json",
+    "requiredText": "11155111"
+  },
+  "80002": {
+    "name": "Polygon Amoy",
+    "officialInformation": "https://docs.polygon.technology/pos/reference/rpc-endpoints/",
+    "requiredText": "80002"
+  }
+}

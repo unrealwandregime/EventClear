@@ -1,5 +1,183 @@
 # EventClear Build Status
 
+## Current zero-cost testnet pivot — 2026-10-24
+
+Canonical prototype path: `testnet-prototype`, monthly cost ceiling **$0**.
+AWS is **OPTIONAL FUTURE FUNDED STAGING**, not a required next action. No paid
+service, domain, gas purchase, trial or public capital is authorized.
+
+Implemented: isolated mode safety, dedicated local signer,
+immutable PostgreSQL proof blobs, supervised combined web/API/solver/indexer
+image, provider-neutral lifecycle/UI path, free-plan-verified redeploy adapter,
+optional weekly health checks and current provider setup documentation.
+
+Verified locally: 72 Python tests (two contract cases run separately),
+including 17 prototype safety/storage/supervisor tests with real disposable
+PostgreSQL; 35 Solidity tests; two actual API-to-Anvil integration cases; 12
+indexer tests; 16 JavaScript staging/prototype tests; five rendered-route tests;
+repeatable installation; lint, Ruff, TypeScript and workflow lint. The combined
+Python 3.12/Node 22 non-root image builds without AWS access. The Debian 12 base
+initially had two critical OS findings; switching to matching Debian 13 bases
+produced zero critical findings. CI at `d375a6834a036da2272a45d3e1d7dcfe99b4ba3b` passed all nine
+validation jobs, including browser execution and critical scans of all six
+images (run 40063537778). Later runtime/recovery hardening requires fresh CI;
+that prior green result is not acceptance of a newer head.
+
+A local diagnostic image using the same frozen dependencies plus the corrected
+indexer workspace installation passed the complete backend lifecycle with all
+five supervised processes under a 512 MiB memory/one-CPU cap (host has no swap).
+The diagnostic image is not a published release image. The canonical Dockerfile
+now copies the indexer package manifest before installing and CI verifies actual
+non-root API/indexer imports. Runtime source/migrations are explicitly readable.
+The exact latest canonical image refresh is blocked locally by registry HTTP
+503 responses; the workflow builds it independently. Optional BuildKit dependency
+cache input supports frozen, integrity-checked offline pnpm installation.
+
+The shared backend lifecycle passed on a disposable chain with the prototype
+API mode, random isolated signers, PostgreSQL proofs, TLS RPC/Redis, LP deposit,
+SIWE, independent proof reproduction, recovered quote signer, approvals/open,
+indexing, actual API/indexer restart, settlement, both redemptions and exact
+onchain/indexed pool/claim reconciliation. Isolated Redis-unavailable startup
+was rejected; there is no in-memory downgrade. Final pool assets were
+509045000 atomic units, outstanding advance/quoted fees zero, financing return
+10000000 = LP yield 9045000 + protocol yield fees 955000. This is LOCAL TEST
+EVIDENCE, not persistent public-testnet evidence. Local rollback tests exercise
+the redeploy/restart path; actual provider revision rollback remains unverified.
+
+The stronger check exposed missing pool asset snapshots in the inherited
+indexer. It now adds checkpoint-pinned pool/withdrawal/resolution reads and
+compares event-derived ledger values to onchain totals before committing the
+checkpoint. RPC health diagnostics retain 24 hours to bound free-database use.
+Catch-up uses bounded RPC block ranges (500 by default), includes the deployment
+start block and reads snapshots at each range's endpoint. A real claim self-transfer
+emitted while indexing was stopped was recovered exactly once; checkpoint,
+claim balances and accounting remained consistent. Unsupported non-protocol
+logs are ignored, while malformed supported events are quarantined and prevent
+readiness. Structured API logs use server-generated correlation IDs and route
+templates; wallet/session/RPC/database credentials are excluded.
+
+Slither rescan: 32 findings, zero high/critical. Five medium findings and all
+lower findings have explicit internal dispositions in SLITHER_FINDING_REVIEW;
+this is not an independent audit. Minor initialization, shadowing and beneficiary
+checks were fixed without detector suppression.
+
+Local Playwright cannot download Chromium: the CDN returns HTTP 403 Domain
+forbidden. The GitHub API returns Forbidden, but public workflow HTML allowed verification
+of run 40063537778. Later GitHub/npm/Docker/PyPI requests began returning HTTP 503.
+The last local dependency audit therefore failed closed with
+`AUDIT_RESULT_INVALID_OR_UNAVAILABLE`; the preceding successful CI dependency
+check applies to the unchanged lockfile. Final head CI must be read, not inferred.
+The narrow PR metadata job updates PR #10 only after all validation succeeds. Public-site
+remote revalidation is blocked by DNS/network access; local read-only regression
+checks pass. Prior green CI at
+497a2e2 applies to the prior AWS-oriented implementation, not this pivot.
+
+External status: **NOT DEPLOYED / NO REMOTE LIFECYCLE EVIDENCE**. Provider account
+bindings and dedicated keys/faucet gas are unavailable. Current provider pricing
+and official chain pages must be verified before deployment; provider pricing
+pages return HTTP 403 here. No hostname, address, transaction, restart, rollback
+or accounting success is fabricated. See `ZERO_COST_DEPLOYMENT.md` and
+`TESTNET_PROTOTYPE_EVIDENCE.md` for the current path. Independent audit/legal
+approval remain incomplete. Mainnet is untouched; public capital is disabled.
+
+## Historical funded-staging implementation — 2026-10-24
+
+This section records the prior funded-staging implementation. It is historical
+and does not establish present remote acceptance or the canonical $0 path.
+
+Baseline: `2b1bf147d348df62954f6f3ff229179ff0e28960` (fresh default branch,
+no intervening commits). Implementation branch: `codex/final-working-prototype`.
+Implementation checkpoint: `ea0b35c46da8b336766559e6649a0626669310b6`.
+
+The runtime scan gate now builds and scans **all five** service images, including
+the standalone migration image. The expanded scan found `CVE-2026-59873` in the
+indexer's bundled pnpm `tar` dependency. The indexer now runs directly with
+Node/tsx and removes unused runtime package managers; no scanner exception was
+added. Latest PR checks determine acceptance of that fix.
+
+
+**External prototype: NOT DEPLOYED / NOT REMOTELY ACCEPTED.**
+No AWS resources, remote contracts, external test transactions or SNS
+notifications were created in this sprint. There was no usable AWS identity in
+this runtime, no available staging RPC/signers/domain/budget configuration, and the protected GitHub staging environment is absent. Initial GitHub API
+requests were denied, but later branch/PR/CI operations succeeded. The integration
+refused protected-environment creation with HTTP 403 (resource not accessible by
+integration); the repository owner must create/protect that environment. No
+staging secrets or variables are bound because that environment does not exist.
+Draft PR: https://github.com/unrealwandregime/EventClear/pull/10.
+
+Implemented:
+
+- Exact protected-environment OIDC trust and separate CloudFormation execution
+  role; repeatable AWS stack with private data stores, HTTPS, ECS/ECR, encrypted
+  versioned private artifacts, KMS, generated secrets, budget and monitoring.
+- Derived AWS outputs, KMS address/signature verification, dedicated test actor
+  checks, canonical solver-verified future-window fixture and non-mainnet guards.
+- First-deployment ECS creation, immutable SHA images, repeatable checksum-locked
+  migrations, separate database per manifest, receipt-derived indexer start,
+  pinned runtime secret versions, readiness and automatic service rollback.
+- Staging access gateway, SIWE/allowlist preservation, explicit test-only market
+  reads, private solver verification, current durable indexer health and claim
+  burn/supply reconciliation. Public mainnet/capital flags remain false.
+- Remote lifecycle/UI runner, S3 conditional immutability verification, API/indexer
+  restart and Redis persistence/failure probe, accounting, harmless task revision
+  rollback, sanitized immutable evidence artifacts and evidence-promotion PR tool.
+- CloudWatch definitions/application metrics, test alarm, explicit recipient
+  confirmation tool, safe staging destruction and documented retained resources.
+- Pinned GitHub Actions and Foundry standard library, patched dependency updates,
+  source/hash/regression-verified braces depth mitigation with no advisory ignore
+  or expired exception. See `config/security/braces-mitigation.json`.
+
+Current-instance evidence:
+
+| Check | Result |
+| --- | --- |
+| `make install` repeatability | Passed after fixing existing dependency reruns |
+| `make test` | Passed: solver/API, Solidity, indexer, build and rendered routes |
+| Python including new staging tests | 55 passed; two integration cases skipped in unit run |
+| Dedicated API-to-Anvil integration | Both cases passed separately |
+| Solidity local/fuzz/invariant | 35 passed; also passed with pinned forge-std v1.9.7 |
+| Local staging deployment | Ten real local contracts verified: bytecode, constructor links, role renunciation, signer, risk caps, LP and test positions |
+| Indexer | Nine passed, including claim supply after burn |
+| Staging JavaScript/crypto/gateway/security tests | 11 passed |
+| Rendered routes / production build | Five passed; production HTTP rendering verified |
+| TypeScript, ESLint, Ruff | Passed |
+| ABI compatibility | 36 compiled calls verified |
+| Local broadcast demo lifecycle | Passed on disposable chain 31337; not remote evidence |
+| Fresh SQL migration / rerun / manifest namespace creation | Passed; second run applies no migrations |
+| CloudFormation lint | Both templates passed without diagnostics; AWS service-side validation unrun |
+| GitHub workflow actionlint | Passed |
+| Dependency policy | Production high/critical zero; no development exceptions; one exact-source verified development parser mitigation |
+| License policy | Passed |
+| Gitleaks full Git history | Passed; only exact published local fixtures/status prose are allowlisted |
+| Slither | Passed existing high-severity gate; zero high findings, nine medium and lower findings remain for review |
+| Trivy repository dependency scan | Zero critical findings |
+| Web / solver image builds | Passed with cloud proxy CA/DNS trust configured locally; verification stayed enabled |
+| Web / solver image critical scans | Both passed with zero critical findings after updating esbuild and removing unused runtime npm/corepack |
+| Non-root web container | HTTP rendered; mainnet/capital flags false; quote writes returned `403 PRODUCTION_READONLY` |
+| Full API/indexer/migration image validation | Local full build blocked by official RDS CA policy 403; GitHub built Compose images plus the standalone migration image. Critical scans are required for all five |
+| Fresh browser E2E | Cloud instance blocked at browser launch by CDN policy; GitHub web job passed the browser suite |
+| Fresh Polygon fork | Unrun: no usable fork RPC URL in this runtime; historical result below is separate |
+| Public deployed site revalidation | Blocked by network policy; local production image isolation passed |
+| Remote GitHub CI | All eight jobs passed at `efd26158e6c7a474233d9de6066aa23712d6cf0b`: [run 39967077676](https://github.com/unrealwandregime/EventClear/actions/runs/39967077676). Latest PR checks remain authoritative |
+| AWS, remote lifecycle/UI, persistence, rollback, alarms/SNS delivery | NOT RUN REMOTELY |
+
+Pending network draft additions include the browser CDN, GitHub API and official
+RDS trust store. Draft saves do not apply runtime policy or publish a snapshot.
+GitHub CI logs additionally require `results-receiver.actions.githubusercontent.com`;
+the run conclusion/job steps were read through the GitHub API, but log download
+was denied. Review/save environment settings and publish through the product before retrying
+blocked cloud checks. External staging inputs and resume commands are in
+`STAGING_CREDENTIAL_CHECKLIST.md`; operational steps are in
+`../infrastructure/aws/README.md`. Run the protected workflow only from a reviewed
+release with green CI. No manifest or remote evidence was fabricated.
+
+Independent audit: incomplete. Legal approval: incomplete. These are later
+capital-release gates, not test-asset prototype requirements. Polygon-mainnet
+EventClear deployment: not attempted. Public capital/public LP access: disabled.
+
+## Historical build record
+
 ## Investor-facing public release — 2026-09-05
 
 The public root experience is now an investor-facing product narrative rather

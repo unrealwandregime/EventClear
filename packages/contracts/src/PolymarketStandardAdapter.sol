@@ -48,6 +48,7 @@ contract ExactRedemptionEscrow is ERC1155Holder {
     address public immutable beneficiary;
 
     error Unauthorized();
+    error ZeroBeneficiary();
 
     constructor(
         IPolymarketConditionalTokens conditionalTokens_,
@@ -59,6 +60,7 @@ contract ExactRedemptionEscrow is ERC1155Holder {
         pUSD = pUSD_;
         officialAdapter = officialAdapter_;
         owner = msg.sender;
+        if (beneficiary_ == address(0)) revert ZeroBeneficiary();
         beneficiary = beneficiary_;
     }
 

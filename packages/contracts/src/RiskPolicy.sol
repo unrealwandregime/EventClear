@@ -99,7 +99,7 @@ contract RiskPolicy is AccessControl {
 
         for (uint256 i; i < marketIds.length; ++i) {
             if (marketIds[i] == bytes32(0)) revert InvalidRiskInput();
-            bool alreadyCounted;
+            bool alreadyCounted = false;
             for (uint256 j; j < i; ++j) {
                 if (marketIds[j] == marketIds[i]) alreadyCounted = true;
             }
@@ -125,7 +125,7 @@ contract RiskPolicy is AccessControl {
         relationshipExposure[relationshipHash] -= grossAdvance;
         globalExposure -= grossAdvance;
         for (uint256 i; i < marketIds.length; ++i) {
-            bool alreadyCounted;
+            bool alreadyCounted = false;
             for (uint256 j; j < i; ++j) {
                 if (marketIds[j] == marketIds[i]) alreadyCounted = true;
             }

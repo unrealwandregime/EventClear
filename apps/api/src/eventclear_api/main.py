@@ -28,7 +28,7 @@ from eth_account import Account
 from eth_account.messages import encode_defunct
 
 from eventclear_solver.engine import solve
-from eventclear_solver.models import ProofArtifact, SolverRequest
+from eventclear_solver.models import ProofArtifact, SolverRequest, SolverResult
 
 from .calldata import (
     deposit,
@@ -49,6 +49,7 @@ from .quote import issue_quote
 from .repository import create_store
 from .seed import POSITIONS
 from .settings import Settings
+from .telemetry import emit
 from .transaction_models import (
     AmountRequest,
     OpenBundleRequest,
@@ -57,6 +58,7 @@ from .transaction_models import (
     PrepareOpenBundleRequest,
 )
 
+boot_id = str(uuid.uuid4())
 settings = Settings()
 settings.validate()
 store = create_store(settings)
@@ -73,6 +75,13 @@ polymarket = PolymarketReadGateway(
     settings.polygon_rpc_urls,
     freshness_seconds=settings.market_freshness_seconds,
 )
+if settings.normalized_mode in {"staging", "testnet-prototype"}:
+    from .staging import StagingGateway, load_fixture, initialize_fixture
+
+    staging_fixture = load_fixture(settings)
+    initialize_fixture(store, staging_fixture)
+    polymarket = StagingGateway(settings, staging_fixture)
+
 REQUESTS = Counter(
     "eventclear_api_requests_total", "API requests", ["method", "path", "status"]
 )
@@ -104,11 +113,15 @@ async def lifespan(_: FastAPI):
     settings.validate()
     if settings.normalized_mode in {
         "staging",
+        "testnet-prototype",
         "production-readonly",
         "production-controlled",
     }:
-        if redis_client is None or not await redis_client.ping():
-            raise RuntimeError("REDIS_RATE_LIMITER_UNAVAILABLE")
+        try:
+            if redis_client is None or not await redis_client.ping():
+                raise RuntimeError("REDIS_RATE_LIMITER_UNAVAILABLE")
+        except RedisError:
+            raise RuntimeError("REDIS_RATE_LIMITER_UNAVAILABLE") from None
     yield
     if redis_client is not None:
         await redis_client.aclose()
@@ -119,8 +132,28 @@ app = FastAPI(title="EventClear API", version="1.0.0", lifespan=lifespan)
 
 @app.middleware("http")
 async def controls(request: Request, call_next):
+    if settings.normalized_mode in {
+        "staging",
+        "testnet-prototype",
+    } and request.url.path not in {
+        "/api/v1/health",
+        "/api/v1/readiness",
+    }:
+        supplied = request.headers.get("x-staging-access", "")
+        if not settings.staging_access_token or not hmac.compare_digest(
+            supplied, settings.staging_access_token
+        ):
+            return JSONResponse(
+                status_code=403, content={"detail": {"code": "STAGING_ACCESS_REQUIRED"}}
+            )
     started = time.monotonic()
     correlation_id = request.headers.get("x-correlation-id", str(uuid.uuid4()))
+    if len(correlation_id) > 64 or not all(
+        c.isalnum() or c in "-_" for c in correlation_id
+    ):
+        correlation_id = str(uuid.uuid4())
+    if settings.normalized_mode == "testnet-prototype":
+        correlation_id = str(uuid.uuid4())
     request.state.correlation_id = correlation_id
     key = request.client.host if request.client else "unknown"
     now = time.monotonic()
@@ -143,6 +176,7 @@ async def controls(request: Request, call_next):
         except RedisError:
             if settings.normalized_mode in {
                 "staging",
+                "testnet-prototype",
                 "production-readonly",
                 "production-controlled",
             }:
@@ -168,11 +202,48 @@ async def controls(request: Request, call_next):
             )
         window.append(now)
     response = await call_next(request)
+    if settings.normalized_mode == "testnet-prototype":
+        route = request.scope.get("route")
+        print(
+            json.dumps(
+                {
+                    "event": "api_request",
+                    "correlationId": correlation_id,
+                    "method": request.method
+                    if request.method
+                    in {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
+                    else "OTHER",
+                    "route": getattr(route, "path", "unmatched"),
+                    "status": response.status_code,
+                }
+            ),
+            flush=True,
+        )
     response.headers["x-correlation-id"] = correlation_id
     response.headers["x-content-type-options"] = "nosniff"
     response.headers["content-security-policy"] = "default-src 'self'"
     REQUESTS.labels(request.method, request.url.path, response.status_code).inc()
     LATENCY.labels(request.url.path).observe(time.monotonic() - started)
+    if settings.normalized_mode in {"staging", "testnet-prototype"}:
+        emit(
+            ApiRequests=1,
+            Api5xx=int(response.status_code >= 500),
+            ApiLatency=(time.monotonic() - started) * 1000,
+            SettlementFailures=int(
+                "settlement" in request.url.path and response.status_code >= 400
+            ),
+        )
+        if request.url.path == "/api/v1/pool":
+            state = store.get_pool_state() or {}
+            emit(
+                ActiveBundles=sum(
+                    b.get("status") == "ACTIVE" for b in store.list_bundles()
+                ),
+                PoolUtilization=float(state.get("utilizationBps", 0)),
+                Shortfalls=sum(
+                    b.get("status") == "SHORTFALL" for b in store.list_bundles()
+                ),
+            )
     return response
 
 
@@ -184,7 +255,7 @@ def admin(
         x_admin_token, settings.admin_api_token
     ):
         raise HTTPException(status_code=403, detail={"code": "ADMIN_REQUIRED"})
-    if settings.normalized_mode == "staging" and (
+    if settings.normalized_mode in {"staging", "testnet-prototype"} and (
         x_admin_address is None
         or x_admin_address.lower() not in settings.admin_allowlist
     ):
@@ -199,7 +270,7 @@ def authenticated_session(authorization: str | None = Header(default=None)) -> d
     if session is None:
         raise HTTPException(401, detail={"code": "INVALID_SESSION"})
     if (
-        settings.normalized_mode == "staging"
+        settings.normalized_mode in {"staging", "testnet-prototype"}
         and session["address"].lower() not in settings.tester_allowlist
     ):
         raise HTTPException(403, detail={"code": "TESTER_NOT_ALLOWLISTED"})
@@ -346,26 +417,40 @@ def health():
 
 @app.get("/api/v1/readiness")
 async def readiness():
-    database_ready = store.healthcheck()
+    try:
+        database_ready = store.healthcheck()
+    except Exception:
+        database_ready = False
     redis_ready = True
     if redis_client is not None:
         try:
             redis_ready = bool(await redis_client.ping())
         except RedisError:
             redis_ready = False
-    ready = database_ready and redis_ready
+    dependencies = {}
+    if settings.normalized_mode in {"staging", "testnet-prototype"}:
+        from .staging import dependency_readiness
+
+        dependencies = await dependency_readiness(settings, store, polymarket)
+    ready = database_ready and redis_ready and all(dependencies.values())
     return JSONResponse(
         status_code=200 if ready else 503,
         content={
             "status": "ready" if ready else "not-ready",
             "database": database_ready,
             "redis": redis_ready,
+            **dependencies,
         },
     )
 
 
 @app.get("/api/v1/config/public")
-def public_config():
+async def public_config():
+    staging_health = {}
+    if settings.normalized_mode in {"staging", "testnet-prototype"}:
+        from .staging import dependency_readiness
+
+        staging_health = await dependency_readiness(settings, store, polymarket)
     read_only = settings.normalized_mode == "production-readonly"
     contracts_deployed = (
         settings.normalized_mode in {"local", "test", "polygon-fork"}
@@ -381,7 +466,11 @@ def public_config():
         "conditionalTokensAddress": settings.conditional_tokens_address,
         "siweDomain": settings.siwe_domain,
         "siweUri": settings.siwe_uri,
-        "mainnetExecution": settings.execution_enabled,
+        "mainnetExecution": settings.normalized_mode == "production-controlled"
+        and settings.chain_id == 137
+        and settings.execution_enabled,
+        "executionEnabled": settings.execution_enabled,
+        "publicCapitalActivated": False,
         "dataSource": "seeded"
         if settings.normalized_mode in {"local", "test"}
         else "live",
@@ -392,6 +481,8 @@ def public_config():
         "indexerStatus": (
             "Local fixture"
             if settings.normalized_mode in {"local", "test"}
+            else ("Healthy" if staging_health.get("indexer") else "Not ready")
+            if settings.normalized_mode in {"staging", "testnet-prototype"}
             else "Not configured"
         ),
         "relationshipDatabaseStatus": (
@@ -452,7 +543,7 @@ def siwe_verify(payload: dict):
     if recovered.lower() != claimed_address.lower():
         raise HTTPException(401, detail={"code": "SIWE_ADDRESS_MISMATCH"})
     if (
-        settings.normalized_mode == "staging"
+        settings.normalized_mode in {"staging", "testnet-prototype"}
         and recovered.lower() not in settings.tester_allowlist
     ):
         raise HTTPException(403, detail={"code": "TESTER_NOT_ALLOWLISTED"})
@@ -481,7 +572,9 @@ async def markets():
         return {
             "data": await polymarket.markets(),
             "stale": False,
-            "source": "gamma-live",
+            "source": "staging-test-assets"
+            if settings.normalized_mode in {"staging", "testnet-prototype"}
+            else "gamma-live",
         }
     except RuntimeError as exc:
         raise HTTPException(503, detail={"code": str(exc)}) from exc
@@ -630,7 +723,9 @@ async def positions(address: str):
         return {
             **capability,
             "positions": await polymarket.positions(address),
-            "source": "data-api-live",
+            "source": "staging-test-assets"
+            if settings.normalized_mode in {"staging", "testnet-prototype"}
+            else "data-api-live",
         }
     except RuntimeError as exc:
         raise HTTPException(503, detail={"code": str(exc)}) from exc
@@ -643,6 +738,16 @@ async def wallet_capabilities(address: str):
 
 @app.get("/api/v1/wallets/{address}/eligible-bundles")
 def eligible(address: str):
+    if settings.normalized_mode in {"staging", "testnet-prototype"}:
+        return {
+            "accountWallet": address,
+            "candidates": [
+                {"relationshipId": r["id"], "status": "ELIGIBLE"}
+                for r in store.list_relationships()
+                if r["status"] == "APPROVED"
+            ],
+            "source": "staging-test-assets",
+        }
     if settings.normalized_mode not in {"local", "test"}:
         return {
             "accountWallet": address,
@@ -665,6 +770,8 @@ def eligible(address: str):
 
 @app.get("/api/v1/wallets/{address}/opportunities")
 def opportunities(address: str):
+    if settings.normalized_mode in {"staging", "testnet-prototype"}:
+        return eligible(address)
     if settings.normalized_mode not in {"local", "test"}:
         return {
             "positionWallet": address,
@@ -707,6 +814,18 @@ def create_analysis(payload: dict, current: dict = Depends(authenticated_session
         }
     )
     result = solve(request)
+    if settings.normalized_mode in {"staging", "testnet-prototype"}:
+        import httpx
+
+        with httpx.Client(timeout=15) as client:
+            remote = client.post(
+                f"{settings.solver_url}/solve", json=request.model_dump(mode="json")
+            )
+            remote.raise_for_status()
+        remote_result = SolverResult.model_validate(remote.json())
+        if solve(request, timestamp=remote_result.generatedAt) != remote_result:
+            raise HTTPException(503, detail={"code": "REMOTE_SOLVER_MISMATCH"})
+        result = remote_result
     if not result.financingEligible:
         raise HTTPException(
             422,
@@ -1502,3 +1621,50 @@ def protocol_events():
 @app.get("/metrics")
 def metrics():
     return PlainTextResponse(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
+@app.get("/api/v1/staging/operations")
+async def staging_operations(current: dict = Depends(authenticated_session)):
+    if settings.normalized_mode not in {"staging", "testnet-prototype"}:
+        raise HTTPException(404)
+    with store._connection() as connection:
+        row = connection.execute(
+            "SELECT block_number, block_hash FROM indexer_checkpoints WHERE chain_id=%s",
+            (settings.chain_id,),
+        ).fetchone()
+        duplicates = connection.execute(
+            "SELECT count(*) FROM (SELECT transaction_hash, log_index FROM chain_events WHERE chain_id=%s AND removed=false GROUP BY transaction_hash, log_index HAVING count(*)>1) duplicated",
+            (settings.chain_id,),
+        ).fetchone()[0]
+        events = connection.execute(
+            "SELECT count(*) FROM chain_events WHERE chain_id=%s AND removed=false",
+            (settings.chain_id,),
+        ).fetchone()[0]
+        migrations = connection.execute(
+            "SELECT name,sha256 FROM eventclear_schema_migrations ORDER BY name"
+        ).fetchall()
+        dead_letters = connection.execute(
+            "SELECT count(*) FROM indexer_dead_letters WHERE chain_id=%s",
+            (settings.chain_id,),
+        ).fetchone()[0]
+    if row is None:
+        raise HTTPException(503, detail={"code": "INDEXER_CHECKPOINT_MISSING"})
+    probe_key = (
+        "eventclear:staging:restart-probe:"
+        + hashlib.sha256(current["address"].lower().encode()).hexdigest()
+    )
+    probe = await redis_client.incr(probe_key)
+    await redis_client.expire(probe_key, 86400)
+    return {
+        "redisRestartProbe": probe,
+        "bootId": boot_id,
+        "checkpoint": str(row[0]),
+        "blockHash": row[1],
+        "indexedEvents": events,
+        "duplicateEvents": duplicates,
+        "deadLetters": dead_letters,
+        "databaseMigrationVersion": migrations[-1][0] if migrations else None,
+        "migrationLedgerHash": hashlib.sha256(
+            json.dumps(migrations, separators=(",", ":")).encode()
+        ).hexdigest(),
+    }

@@ -18,3 +18,21 @@ description = "Foundry/Anvil account #1 public test key used only by the local c
 paths = ['''apps/api/tests/test_contract_integration\.py''']
 regexTarget = "match"
 regexes = ['''0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d''']
+
+[[allowlists]]
+description = "Public read-only status prose, not an authentication value"
+paths = ['''app/api/v1/config/public/route\.ts''']
+regexTarget = "match"
+regexes = ['''executionStatus: "Mainnet execution disabled"''']
+
+[[allowlists]]
+description = "Published deterministic local-only MockPUSD address, not a credential"
+paths = ['''config/deployments/local\.(json|env)''']
+regexTarget = "match"
+regexes = ['''0x5fbdb2315678afecb367f032d93f642f64180aa3''']
+
+[[allowlists]]
+description = "Published local example and Anvil keys; prohibited by external staging signer validation"
+paths = ['''\.env\.example''', '''packages/contracts/script/DemoLifecycle\.s\.sol''']
+regexTarget = "match"
+regexes = ['''0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80''', '''0x59c6995e998f97a5a0044976f0945389dc9e86dae88c7a8412f4603b6b78690d''']
