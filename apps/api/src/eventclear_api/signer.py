@@ -57,6 +57,8 @@ def _recoverable_signature(
 
 def sign_typed_data(message: SignableMessage, settings: Settings) -> bytes:
     if settings.signer_backend == "local":
+        if settings.normalized_mode not in {"local", "test", "testnet-prototype"}:
+            raise RuntimeError("LOCAL_SIGNER_MODE_PROHIBITED")
         return Account.sign_message(message, private_key=settings.signer_key).signature
 
     import boto3

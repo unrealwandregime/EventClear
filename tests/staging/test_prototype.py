@@ -134,5 +134,54 @@ def test_real_postgres_artifact_immutability_and_tamper_detection():
         )
     with pytest.raises(RuntimeError, match="INTEGRITY_MISMATCH"):
         store.get(digest, "0x" + digest)
+    conflicting = {"proof": "different"}
+    from eventclear_api.artifact_store import canonical_artifact_bytes
+
+    conflict_hash = hashlib.sha256(canonical_artifact_bytes(conflicting)).hexdigest()
+    with psycopg.connect(url) as connection:
+        connection.execute(
+            "INSERT INTO solver_artifact_blobs(artifact_hash,canonical_json) VALUES (%s,%s) ON CONFLICT DO NOTHING",
+            (conflict_hash, b"{}"),
+        )
+    with pytest.raises(RuntimeError, match="SOLVER_ARTIFACT_CONFLICT"):
+        store.put("collision", conflicting)
+
     with pytest.raises(RuntimeError, match="INTEGRITY_MISMATCH"):
         store.get(stored.key, "0x" + digest)
+
+
+def test_supervisor_child_failure_reaps_every_process(monkeypatch):
+    import importlib.util
+    import subprocess
+    import sys
+    import time
+
+    spec = importlib.util.spec_from_file_location(
+        "supervisor", "scripts/prototype/supervise.py"
+    )
+    supervisor = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(supervisor)
+    children = []
+    original = subprocess.Popen
+
+    def recording(*args, **kwargs):
+        child = original(*args, **kwargs)
+        children.append(child)
+        return child
+
+    monkeypatch.setattr(subprocess, "Popen", recording)
+    started = time.monotonic()
+    assert (
+        supervisor.supervise(
+            [
+                (
+                    [sys.executable, "-c", "import time; time.sleep(30)"],
+                    os.environ.copy(),
+                ),
+                ([sys.executable, "-c", "raise SystemExit(7)"], os.environ.copy()),
+            ]
+        )
+        == 1
+    )
+    assert time.monotonic() - started < 5
+    assert all(child.poll() is not None for child in children)

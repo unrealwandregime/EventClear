@@ -148,6 +148,10 @@ async def controls(request: Request, call_next):
             )
     started = time.monotonic()
     correlation_id = request.headers.get("x-correlation-id", str(uuid.uuid4()))
+    if len(correlation_id) > 64 or not all(
+        c.isalnum() or c in "-_" for c in correlation_id
+    ):
+        correlation_id = str(uuid.uuid4())
     request.state.correlation_id = correlation_id
     key = request.client.host if request.client else "unknown"
     now = time.monotonic()

@@ -71,7 +71,7 @@ export function gateway({ token, apiUrl, webUrl, secure = true }) {
       res.end();
       return;
     }
-    if (!access) {
+    if (!access && !["/api/v1/health", "/api/v1/readiness"].includes(path)) {
       res.writeHead(403, {
         "content-type": "text/html",
         "cache-control": "no-store",

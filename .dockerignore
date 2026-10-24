@@ -17,3 +17,6 @@ test-results
 playwright-report
 config/staging/deployed.json
 config/contracts/staging.json
+
+config/contracts/testnet-prototype.json
+prototype-health.json

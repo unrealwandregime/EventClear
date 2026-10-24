@@ -480,6 +480,11 @@ export function EventClearApp() {
 
   return (
     <main className="shell">
+      {config?.environment === "testnet-prototype" && (
+        <aside role="alert" style={{padding: "12px", background: "#78350f", color: "#fff"}}>
+          TESTNET PROTOTYPE · TEST ASSETS ONLY · NO REAL FUNDS
+        </aside>
+      )}
       <aside className="sidebar">
         <Link className="brand" href="/" aria-label="Back to EventClear investor site"><i className="brandmark" /><span>EventClear</span></Link>
         <nav className="nav" aria-label="Primary navigation">

@@ -6,6 +6,9 @@ import time
 
 
 def emit(**metrics):
+    if os.getenv("EVENTCLEAR_MODE") == "testnet-prototype":
+        print(json.dumps({"event": "prototype_metrics", **metrics}), flush=True)
+        return
     if os.getenv("EVENTCLEAR_MODE") != "staging":
         return
     stack = os.getenv("STAGING_STACK_NAME")

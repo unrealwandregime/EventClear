@@ -22,6 +22,11 @@ const confirmations = BigInt(process.env.INDEXER_CONFIRMATIONS ?? "64");
 const chainId = Number(process.env.CHAIN_ID ?? "137");
 const rpcUrls = (process.env.POLYGON_RPC_URLS ?? "").split(",").map((value) => value.trim()).filter(Boolean);
 if (process.env.EVENTCLEAR_MODE === "staging" && ([1,137,31337,1337].includes(chainId) || process.env.ENABLE_MAINNET_EXECUTION === "true" || process.env.STAGING_TEST_ASSETS_ONLY !== "true")) throw new Error("STAGING_CHAIN_GUARD_FAILED");
+if (process.env.EVENTCLEAR_MODE === "testnet-prototype" && (
+  ![80002,11155111].includes(chainId) || process.env.TESTNET_ASSETS_ONLY !== "true" ||
+  process.env.ENABLE_MAINNET_EXECUTION !== "false" || process.env.PUBLIC_CAPITAL_ACTIVATED !== "false" ||
+  process.env.PROTOTYPE_MAX_MONTHLY_COST_USD !== "0" || !process.env.DATABASE_URL || !rpcUrls.length || rpcUrls.some(url => !url.startsWith("https://"))
+)) throw new Error("PROTOTYPE_INDEXER_GUARD_FAILED");
 const configuredChain = defineChain({ id: chainId, name: "Configured EventClear network", nativeCurrency: { name: "Gas", symbol: "GAS", decimals: 18 }, rpcUrls: { default: { http: rpcUrls } } });
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 const addresses = [
