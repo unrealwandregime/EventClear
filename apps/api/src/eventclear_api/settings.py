@@ -142,6 +142,7 @@ class Settings:
             "test": "local",
             "polygon-fork": "polygon-fork",
             "staging": "staging",
+            "testnet-prototype": "testnet-prototype",
             "production-readonly": "polygon-mainnet",
             "production-controlled": "polygon-mainnet",
         }[mode]
@@ -187,6 +188,7 @@ class Settings:
             "test",
             "polygon-fork",
             "staging",
+            "testnet-prototype",
             "production-readonly",
             "production-controlled",
         }:
@@ -209,6 +211,10 @@ class Settings:
         ):
             raise RuntimeError("EVENTCLEAR_STORE=postgres")
         self._validate_manifest()
+        if self.normalized_mode == "testnet-prototype":
+            from .prototype import validate_prototype
+
+            validate_prototype(self)
         if self.normalized_mode == "production-controlled":
             missing = [
                 key for key in CONTROLLED_PRODUCTION_GATES if os.getenv(key) != "true"

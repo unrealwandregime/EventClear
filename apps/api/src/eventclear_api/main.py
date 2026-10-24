@@ -58,6 +58,7 @@ from .transaction_models import (
     PrepareOpenBundleRequest,
 )
 
+boot_id = str(uuid.uuid4())
 settings = Settings()
 settings.validate()
 store = create_store(settings)
@@ -74,7 +75,7 @@ polymarket = PolymarketReadGateway(
     settings.polygon_rpc_urls,
     freshness_seconds=settings.market_freshness_seconds,
 )
-if settings.normalized_mode == "staging":
+if settings.normalized_mode in {"staging", "testnet-prototype"}:
     from .staging import StagingGateway, load_fixture, initialize_fixture
 
     staging_fixture = load_fixture(settings)
@@ -112,6 +113,7 @@ async def lifespan(_: FastAPI):
     settings.validate()
     if settings.normalized_mode in {
         "staging",
+        "testnet-prototype",
         "production-readonly",
         "production-controlled",
     }:
@@ -130,7 +132,10 @@ app = FastAPI(title="EventClear API", version="1.0.0", lifespan=lifespan)
 
 @app.middleware("http")
 async def controls(request: Request, call_next):
-    if settings.normalized_mode == "staging" and request.url.path not in {
+    if settings.normalized_mode in {
+        "staging",
+        "testnet-prototype",
+    } and request.url.path not in {
         "/api/v1/health",
         "/api/v1/readiness",
     }:
@@ -165,6 +170,7 @@ async def controls(request: Request, call_next):
         except RedisError:
             if settings.normalized_mode in {
                 "staging",
+                "testnet-prototype",
                 "production-readonly",
                 "production-controlled",
             }:
@@ -195,7 +201,7 @@ async def controls(request: Request, call_next):
     response.headers["content-security-policy"] = "default-src 'self'"
     REQUESTS.labels(request.method, request.url.path, response.status_code).inc()
     LATENCY.labels(request.url.path).observe(time.monotonic() - started)
-    if settings.normalized_mode == "staging":
+    if settings.normalized_mode in {"staging", "testnet-prototype"}:
         emit(
             ApiRequests=1,
             Api5xx=int(response.status_code >= 500),
@@ -226,7 +232,7 @@ def admin(
         x_admin_token, settings.admin_api_token
     ):
         raise HTTPException(status_code=403, detail={"code": "ADMIN_REQUIRED"})
-    if settings.normalized_mode == "staging" and (
+    if settings.normalized_mode in {"staging", "testnet-prototype"} and (
         x_admin_address is None
         or x_admin_address.lower() not in settings.admin_allowlist
     ):
@@ -241,7 +247,7 @@ def authenticated_session(authorization: str | None = Header(default=None)) -> d
     if session is None:
         raise HTTPException(401, detail={"code": "INVALID_SESSION"})
     if (
-        settings.normalized_mode == "staging"
+        settings.normalized_mode in {"staging", "testnet-prototype"}
         and session["address"].lower() not in settings.tester_allowlist
     ):
         raise HTTPException(403, detail={"code": "TESTER_NOT_ALLOWLISTED"})
@@ -399,7 +405,7 @@ async def readiness():
         except RedisError:
             redis_ready = False
     dependencies = {}
-    if settings.normalized_mode == "staging":
+    if settings.normalized_mode in {"staging", "testnet-prototype"}:
         from .staging import dependency_readiness
 
         dependencies = await dependency_readiness(settings, store, polymarket)
@@ -418,7 +424,7 @@ async def readiness():
 @app.get("/api/v1/config/public")
 async def public_config():
     staging_health = {}
-    if settings.normalized_mode == "staging":
+    if settings.normalized_mode in {"staging", "testnet-prototype"}:
         from .staging import dependency_readiness
 
         staging_health = await dependency_readiness(settings, store, polymarket)
@@ -453,7 +459,7 @@ async def public_config():
             "Local fixture"
             if settings.normalized_mode in {"local", "test"}
             else ("Healthy" if staging_health.get("indexer") else "Not ready")
-            if settings.normalized_mode == "staging"
+            if settings.normalized_mode in {"staging", "testnet-prototype"}
             else "Not configured"
         ),
         "relationshipDatabaseStatus": (
@@ -514,7 +520,7 @@ def siwe_verify(payload: dict):
     if recovered.lower() != claimed_address.lower():
         raise HTTPException(401, detail={"code": "SIWE_ADDRESS_MISMATCH"})
     if (
-        settings.normalized_mode == "staging"
+        settings.normalized_mode in {"staging", "testnet-prototype"}
         and recovered.lower() not in settings.tester_allowlist
     ):
         raise HTTPException(403, detail={"code": "TESTER_NOT_ALLOWLISTED"})
@@ -544,7 +550,7 @@ async def markets():
             "data": await polymarket.markets(),
             "stale": False,
             "source": "staging-test-assets"
-            if settings.normalized_mode == "staging"
+            if settings.normalized_mode in {"staging", "testnet-prototype"}
             else "gamma-live",
         }
     except RuntimeError as exc:
@@ -695,7 +701,7 @@ async def positions(address: str):
             **capability,
             "positions": await polymarket.positions(address),
             "source": "staging-test-assets"
-            if settings.normalized_mode == "staging"
+            if settings.normalized_mode in {"staging", "testnet-prototype"}
             else "data-api-live",
         }
     except RuntimeError as exc:
@@ -709,7 +715,7 @@ async def wallet_capabilities(address: str):
 
 @app.get("/api/v1/wallets/{address}/eligible-bundles")
 def eligible(address: str):
-    if settings.normalized_mode == "staging":
+    if settings.normalized_mode in {"staging", "testnet-prototype"}:
         return {
             "accountWallet": address,
             "candidates": [
@@ -741,7 +747,7 @@ def eligible(address: str):
 
 @app.get("/api/v1/wallets/{address}/opportunities")
 def opportunities(address: str):
-    if settings.normalized_mode == "staging":
+    if settings.normalized_mode in {"staging", "testnet-prototype"}:
         return eligible(address)
     if settings.normalized_mode not in {"local", "test"}:
         return {
@@ -785,7 +791,7 @@ def create_analysis(payload: dict, current: dict = Depends(authenticated_session
         }
     )
     result = solve(request)
-    if settings.normalized_mode == "staging":
+    if settings.normalized_mode in {"staging", "testnet-prototype"}:
         import httpx
 
         with httpx.Client(timeout=15) as client:
@@ -1596,7 +1602,7 @@ def metrics():
 
 @app.get("/api/v1/staging/operations")
 async def staging_operations(current: dict = Depends(authenticated_session)):
-    if settings.normalized_mode != "staging":
+    if settings.normalized_mode not in {"staging", "testnet-prototype"}:
         raise HTTPException(404)
     with store._connection() as connection:
         row = connection.execute(
@@ -1621,6 +1627,7 @@ async def staging_operations(current: dict = Depends(authenticated_session)):
     await redis_client.expire(probe_key, 86400)
     return {
         "redisRestartProbe": probe,
+        "bootId": boot_id,
         "checkpoint": str(row[0]),
         "blockHash": row[1],
         "indexedEvents": events,

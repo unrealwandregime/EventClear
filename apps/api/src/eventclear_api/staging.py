@@ -8,7 +8,10 @@ from .polymarket import PolymarketReadGateway
 
 
 def load_fixture(settings):
-    if settings.normalized_mode != "staging" or settings.chain_id in {
+    if settings.normalized_mode not in {
+        "staging",
+        "testnet-prototype",
+    } or settings.chain_id in {
         1,
         137,
         31337,

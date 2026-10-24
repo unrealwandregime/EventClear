@@ -84,7 +84,11 @@ class S3ArtifactStore:
         return value
 
 
-def create_artifact_store(settings: Any) -> S3ArtifactStore | None:
+def create_artifact_store(
+    settings: Any,
+) -> S3ArtifactStore | PostgresArtifactStore | None:
+    if settings.normalized_mode == "testnet-prototype":
+        return PostgresArtifactStore(settings.database_url)
     if settings.normalized_mode != "staging":
         return None
     return S3ArtifactStore(
@@ -94,3 +98,49 @@ def create_artifact_store(settings: Any) -> S3ArtifactStore | None:
         access_key_id=settings.object_storage_access_key,
         secret_access_key=settings.object_storage_secret_key,
     )
+
+
+class PostgresArtifactStore:
+    """Content-addressed, create-once artifacts; JSON bytes remain authoritative."""
+
+    def __init__(self, database_url: str):
+        self.database_url = database_url
+
+    def put(self, analysis_id: str, artifact: dict[str, Any]) -> StoredArtifact:
+        import psycopg
+
+        body = canonical_artifact_bytes(artifact)
+        digest = hashlib.sha256(body).hexdigest()
+        with psycopg.connect(self.database_url) as connection:
+            connection.execute(
+                "INSERT INTO solver_artifact_blobs(artifact_hash,canonical_json) VALUES (%s,%s) ON CONFLICT DO NOTHING",
+                (digest, body),
+            )
+            existing = connection.execute(
+                "SELECT canonical_json FROM solver_artifact_blobs WHERE artifact_hash=%s",
+                (digest,),
+            ).fetchone()
+            if existing is None or bytes(existing[0]) != body:
+                raise RuntimeError("SOLVER_ARTIFACT_CONFLICT")
+        return StoredArtifact(key=digest, sha256=f"0x{digest}")
+
+    def get(self, key: str, expected_sha256: str) -> dict[str, Any]:
+        import psycopg
+
+        expected = expected_sha256.removeprefix("0x").lower()
+        if key != expected:
+            raise RuntimeError("SOLVER_ARTIFACT_INTEGRITY_MISMATCH")
+        with psycopg.connect(self.database_url) as connection:
+            row = connection.execute(
+                "SELECT canonical_json FROM solver_artifact_blobs WHERE artifact_hash=%s",
+                (key,),
+            ).fetchone()
+        if row is None:
+            raise RuntimeError("SOLVER_ARTIFACT_NOT_FOUND")
+        body = bytes(row[0])
+        if hashlib.sha256(body).hexdigest() != expected:
+            raise RuntimeError("SOLVER_ARTIFACT_INTEGRITY_MISMATCH")
+        value = json.loads(body)
+        if not isinstance(value, dict) or canonical_artifact_bytes(value) != body:
+            raise RuntimeError("SOLVER_ARTIFACT_INVALID")
+        return value
