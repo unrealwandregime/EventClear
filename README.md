@@ -83,7 +83,7 @@ controls, not documentation.
 
 - `RelationshipRegistry` stores immutable approved definition hashes, versions, validity windows, and lifecycle status.
 - `EventClearVault` verifies EIP-712 quotes, binds legs/amounts, escrows tokens, coordinates funding, redeems resolved positions by balance difference, and allocates principal before residual.
-- `EventClearClaims` mints transferable ERC-1155 principal and residual claims with deterministic IDs `(bundleId << 8) | claimType`.
+- `EventClearClaims` mints transferable ERC-1155 principal and residual claims with deterministic IDs `keccak256(abi.encode(bundleId, claimType))`.
 - `EventClearFundingPool` is an allowlisted ERC-4626 pilot pool. `totalAssets =
   liquid pUSD + outstanding gross advance cost basis - outstanding quoted
   fees`; unearned fees and yield are not recognized before settlement. Its

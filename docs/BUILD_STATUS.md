@@ -1,13 +1,20 @@
 # EventClear Build Status
 
-## Current working-prototype implementation — 2026-10-23
+## Current working-prototype implementation — 2026-10-24
 
 Canonical current state. Everything under “Historical build record” is historical
 and does not establish present remote acceptance.
 
 Baseline: `2b1bf147d348df62954f6f3ff229179ff0e28960` (fresh default branch,
 no intervening commits). Implementation branch: `codex/final-working-prototype`.
-Tested implementation commit: `3da709c8c16d4ed8258c2436c8f25e8f1600cff5`.
+Implementation checkpoint: `ea0b35c46da8b336766559e6649a0626669310b6`.
+
+The runtime scan gate now builds and scans **all five** service images, including
+the standalone migration image. The expanded scan found `CVE-2026-59873` in the
+indexer's bundled pnpm `tar` dependency. The indexer now runs directly with
+Node/tsx and removes unused runtime package managers; no scanner exception was
+added. Latest PR checks determine acceptance of that fix.
+
 
 **External prototype: NOT DEPLOYED / NOT REMOTELY ACCEPTED.**
 No AWS resources, remote contracts, external test transactions or SNS
@@ -68,7 +75,7 @@ Current-instance evidence:
 | Web / solver image builds | Passed with cloud proxy CA/DNS trust configured locally; verification stayed enabled |
 | Web / solver image critical scans | Both passed with zero critical findings after updating esbuild and removing unused runtime npm/corepack |
 | Non-root web container | HTTP rendered; mainnet/capital flags false; quote writes returned `403 PRODUCTION_READONLY` |
-| Full API/indexer/migration image validation | Local build blocked by official RDS CA policy 403; GitHub Docker job passed all Compose image builds |
+| Full API/indexer/migration image validation | Local full build blocked by official RDS CA policy 403; GitHub built Compose images plus the standalone migration image. Critical scans are required for all five |
 | Fresh browser E2E | Cloud instance blocked at browser launch by CDN policy; GitHub web job passed the browser suite |
 | Fresh Polygon fork | Unrun: no usable fork RPC URL in this runtime; historical result below is separate |
 | Public deployed site revalidation | Blocked by network policy; local production image isolation passed |
