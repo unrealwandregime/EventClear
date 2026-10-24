@@ -13,7 +13,12 @@ const runJson = (args) => {
     maxBuffer: 32 * 1024 * 1024,
   });
   if (!result.stdout) throw new Error(result.stderr || `pnpm ${args.join(" ")} failed`);
-  return JSON.parse(result.stdout);
+  const parsed = JSON.parse(result.stdout);
+  if (![0, 1].includes(result.status) || parsed.error || !parsed.advisories || !parsed.metadata?.vulnerabilities) {
+    throw new Error("AUDIT_RESULT_INVALID_OR_UNAVAILABLE");
+  }
+  if (parsed.muted?.length) throw new Error("AUDIT_MUTED_FINDINGS_REQUIRE_REVIEW");
+  return parsed;
 };
 
 const production = runJson(["audit", "--prod", "--json"]);
@@ -46,7 +51,7 @@ const allowed = new Map(
   }),
 );
 const complete = runJson(["audit", "--json"]);
-const verifiedMitigations = new Set();
+const verifiedMitigations = new Set([verifyBracesMitigation()]);
 const unapproved = Object.values(complete.advisories ?? {}).filter((advisory) => {
   if (advisory.github_advisory_id === "GHSA-vfj7-8cjw-p6xm" && advisory.module_name === "braces" && !productionAdvisoryIds.has(advisory.github_advisory_id)) {
     verifiedMitigations.add(verifyBracesMitigation());
