@@ -3,7 +3,7 @@ WORKDIR /app
 COPY apps/solver /solver
 RUN pip install --no-cache-dir /solver
 COPY apps/api /api
-RUN pip install --no-cache-dir /api
+RUN pip install --no-cache-dir "/api[aws]"
 COPY config/contracts /app/config/contracts
 COPY config/staging /app/config/staging
 COPY scripts/aws/api-entrypoint.py /app/api-entrypoint.py

@@ -11,12 +11,12 @@ export async function redeploy(commitId) {
  }
  const service=await api("");
  if(service.serviceDetails?.plan!=="free" || service.type!=="web_service") throw Error("VERIFIED_FREE_WEB_SERVICE_REQUIRED");
- if(commitId&&!/^[0-9a-f]{40}$/.test(commitId)) throw Error("IMMUTABLE_COMMIT_REQUIRED");
+ if(!/^[0-9a-f]{40}$/.test(commitId??"")) throw Error("IMMUTABLE_COMMIT_REQUIRED");
  const deployment=await api("/deploys",{clearCache:"do_not_clear",...(commitId?{commitId}:{})});
  const until=Date.now()+20*60*1000;
  while(Date.now()<until) {
   const state=await api(`/deploys/${deployment.id}`);
-  if(state.status==="live") return {deploymentId:deployment.id,gitSha:state.commit?.id};
+  if(state.status==="live") {if(state.commit?.id!==commitId)throw Error("HOST_COMMIT_MISMATCH");return {deploymentId:deployment.id,gitSha:state.commit.id};}
   if(["build_failed","update_failed","canceled","deactivated"].includes(state.status)) throw Error("FREE_HOST_DEPLOYMENT_FAILED");
   await new Promise(r=>setTimeout(r,10000));
  }

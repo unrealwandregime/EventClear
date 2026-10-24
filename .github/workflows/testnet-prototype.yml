@@ -84,7 +84,9 @@ jobs:
       - name: Validate isolated signers and current public test chain
         run: node --input-type=module -e 'import {stagingCompatibility} from "./scripts/prototype/environment.mjs"; import {validateChain} from "./scripts/prototype/validate-chain.mjs"; stagingCompatibility(); await validateChain();'
       - if: inputs.action == 'deploy-contracts'
-        run: node scripts/prototype/deploy-contracts.mjs
+        run: |
+          node scripts/prototype/deploy-contracts.mjs
+          node scripts/prototype/host-config.mjs
       - if: inputs.action == 'deploy-contracts'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -95,12 +97,14 @@ jobs:
             config/contracts/testnet-prototype.json
             config/staging/deployed.json
             outputs/prototype/contracts.json
+            outputs/prototype/host-public-config.json
             docs/TESTNET_PROTOTYPE_DEPLOYMENT.md
       - if: inputs.action == 'remote-lifecycle'
         run: |
           node scripts/prototype/restore-evidence.mjs
           pnpm exec playwright install --with-deps chromium
           node scripts/run-testnet-prototype-lifecycle.mjs
+          node scripts/revalidate-public.mjs
       - if: inputs.action == 'health'
         run: node scripts/prototype/health.mjs
       - if: inputs.action == 'remote-lifecycle'

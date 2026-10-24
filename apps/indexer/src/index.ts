@@ -29,6 +29,12 @@ if (process.env.EVENTCLEAR_MODE === "testnet-prototype" && (
 )) throw new Error("PROTOTYPE_INDEXER_GUARD_FAILED");
 const configuredChain = defineChain({ id: chainId, name: "Configured EventClear network", nativeCurrency: { name: "Gas", symbol: "GAS", decimals: 18 }, rpcUrls: { default: { http: rpcUrls } } });
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+// pg emits an idle-client error with its Client object. Never let Node print
+// that object: it contains connection credentials.
+pool.on("error", () => {
+  console.error(JSON.stringify({event:"indexer_database_connection_failed"}));
+  process.exit(1);
+});
 const addresses = [
   process.env.VAULT_ADDRESS,
   process.env.RELATIONSHIP_REGISTRY_ADDRESS,
@@ -133,7 +139,7 @@ async function ensureCanonicalCheckpoint(): Promise<bigint> {
        ON CONFLICT(chain_id) DO UPDATE SET block_number=EXCLUDED.block_number,block_hash=EXCLUDED.block_hash,updated_at=now()`,
       [chainId, rollbackTo.toString(), canonical.hash],
     );
-    await rebuildReadModels(database);
+    await rebuildReadModels(database, rollbackTo);
     await database.query("COMMIT");
   } catch (error) {
     await database.query("ROLLBACK");
@@ -144,7 +150,7 @@ async function ensureCanonicalCheckpoint(): Promise<bigint> {
   return rollbackTo;
 }
 
-async function rebuildReadModels(database: pg.PoolClient) {
+async function rebuildReadModels(database: pg.PoolClient, blockNumber: bigint) {
   const result = await database.query(
     `SELECT block_number,transaction_hash,log_index,event_name,payload,removed
      FROM chain_events WHERE chain_id=$1 ORDER BY block_number,log_index`,
@@ -173,6 +179,7 @@ async function rebuildReadModels(database: pg.PoolClient) {
               abi: parseAbi(["function payoutDenominator(bytes32) view returns (uint256)"]),
               functionName: "payoutDenominator",
               args: [conditionId],
+              blockNumber,
             })
           )
         ),
@@ -183,6 +190,38 @@ async function rebuildReadModels(database: pg.PoolClient) {
   }
   const fundingPoolAddress = process.env.FUNDING_POOL_ADDRESS as `0x${string}` | undefined;
   if (fundingPoolAddress) {
+    // Read at the exact projected checkpoint, never a newer unindexed state.
+    const eventLedger: Record<string, string> = {
+      outstandingAdvanceCostBasisAtomic: "outstandingAdvanceCostBasis",
+      outstandingQuotedFeesAtomic: "outstandingQuotedFees",
+      realizedGrossFinancingReturnAtomic: "realizedGrossFinancingReturn",
+      realizedLpYieldAtomic: "realizedLpYield",
+      realizedOriginationFeesAtomic: "realizedOriginationFees",
+      realizedProtocolYieldFeesAtomic: "realizedProtocolYieldFees",
+      refundedQuotedFeesAtomic: "refundedQuotedFees",
+      realizedLossAtomic: "realizedLoss",
+    };
+    const snapshots: Record<string, string> = {
+      liquidAtomic: "liquidAssets", totalAssetsAtomic: "totalAssets",
+      bookTotalAssetsAtomic: "bookTotalAssets", depositCapAtomic: "depositCap",
+      perBundleCapAtomic: "perBundleCap", utilizationBps: "utilizationBps",
+      cumulativeNetDepositsAtomic: "cumulativeNetDeposits",
+      cumulativeWithdrawalsAtomic: "cumulativeWithdrawals",
+    };
+    await Promise.all(Object.entries({...eventLedger, ...snapshots}).map(async ([field, getter]) => {
+      const value = await withRpc(client => client.readContract({
+        address: fundingPoolAddress,
+        abi: parseAbi([`function ${getter}() view returns (uint256)`]),
+        functionName: getter, blockNumber,
+      }));
+      if (field in eventLedger) {
+        if (String(projection.pool[field]) !== String(value)) {
+          stagingMetric("IndexerReconciliationErrors", 1);
+          throw new Error("INDEXER_ACCOUNTING_RECONCILIATION_FAILED");
+        }
+      } else projection.pool[field] = value.toString();
+    }));
+    projection.pool.snapshotBlock = blockNumber.toString();
     for (const [owner, account] of projection.poolAccounts) {
       account.availableWithdrawalAtomic = (
         await withRpc((client) =>
@@ -191,11 +230,14 @@ async function rebuildReadModels(database: pg.PoolClient) {
             abi: parseAbi(["function maxWithdraw(address) view returns (uint256)"]),
             functionName: "maxWithdraw",
             args: [owner as `0x${string}`],
+            blockNumber,
           })
         )
       ).toString();
     }
   }
+  // Per-RPC diagnostics must not grow without bound on a free database.
+  await database.query("DELETE FROM rpc_health WHERE observed_at < now() - interval '24 hours'");
   await database.query(
     "DELETE FROM api_read_models WHERE kind IN ('bundle','claim','event','pool_state','pool_account')",
   );
@@ -267,7 +309,7 @@ async function indexRange(fromBlock: bigint, toBlock: bigint) {
   try {
     await database.query("BEGIN");
     for (const log of logs) await persistLog(database, log);
-    await rebuildReadModels(database);
+    await rebuildReadModels(database, toBlock);
     const block = await withRpc((client) => client.getBlock({ blockNumber: toBlock }));
     await database.query(
       `INSERT INTO indexer_checkpoints(chain_id,block_number,block_hash,updated_at) VALUES($1,$2,$3,now())
@@ -295,7 +337,7 @@ async function run() {
     stagingMetric("IndexerLag", Number(head >= from ? head - from + 1n : 0n));
     if (from <= head) await indexRange(from, head);
     stagingMetric("IndexerLag", 0);
-    await new Promise((resolve) => setTimeout(resolve, 4_000));
+    await new Promise((resolve) => setTimeout(resolve, process.env.EVENTCLEAR_MODE === "testnet-prototype" ? 8_000 : 4_000));
   }
 }
 

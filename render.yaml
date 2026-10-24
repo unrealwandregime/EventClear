@@ -7,7 +7,7 @@ services:
     plan: free
     dockerfilePath: ./infrastructure/docker/prototype.Dockerfile
     healthCheckPath: /api/v1/readiness
-    autoDeployTrigger: off
+    autoDeployTrigger: 'off'
     envVars:
       - key: EVENTCLEAR_MODE
         value: testnet-prototype

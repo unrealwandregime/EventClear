@@ -42,6 +42,7 @@ def run():
     for role in ("LP", "TESTER", "ADMIN"):
         os.environ[f"{role}_ALLOWLIST"] = os.environ[f"PROTOTYPE_{role}_ADDRESS"]
     os.environ["CONTRACTS_DEPLOYED"] = "true"
+    os.environ.setdefault("ADVANCE_RATIO_BPS", "9000")
 
     from eventclear_api.settings import Settings
 

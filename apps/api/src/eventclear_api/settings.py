@@ -179,6 +179,21 @@ class Settings:
                 address = entry["address"]
                 if address == "0x" + "0" * 40 or not is_checksum_address(address):
                     raise RuntimeError("CONTRACT_MANIFEST_ADDRESS_INVALID")
+            if mode == "testnet-prototype":
+                for key, configured in {
+                    "vault": self.vault_address,
+                    "fundingPool": self.funding_pool_address,
+                    "collateralToken": self.collateral_token_address,
+                    "conditionalTokens": self.conditional_tokens_address,
+                    "standardAdapter": self.adapter_address,
+                    "riskPolicy": self.risk_policy_address,
+                    "relationshipRegistry": self.relationship_registry_address,
+                }.items():
+                    if (
+                        manifest["contracts"][key]["address"].lower()
+                        != configured.lower()
+                    ):
+                        raise RuntimeError("CONTRACT_MANIFEST_BINDING_MISMATCH")
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
             raise RuntimeError("CONTRACT_MANIFEST_INVALID") from exc
 

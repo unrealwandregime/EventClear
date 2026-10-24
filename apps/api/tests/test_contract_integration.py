@@ -108,7 +108,9 @@ class ContractBackedGateway(PolymarketReadGateway):
 
 def _settings(addresses: dict[str, str]) -> SimpleNamespace:
     return SimpleNamespace(
-        normalized_mode="staging",
+        # Direct contract-function integration on a disposable chain; this is not
+        # a runtime Settings object or a public prototype startup bypass.
+        normalized_mode="testnet-prototype",
         funding_pool_address=addresses["EventClearFundingPool"],
         risk_policy_address=addresses["RiskPolicy"],
         relationship_registry_address=addresses["RelationshipRegistry"],
