@@ -3,6 +3,7 @@
 import importlib.util
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -62,6 +63,26 @@ def run():
         if "PRIVATE_KEY" not in key
         and key not in {"ADMIN_API_TOKEN", "SIWE_SESSION_SECRET"}
     }
+    base_process_env = {
+        key: value
+        for key, value in base.items()
+        if key
+        in {
+            "PATH",
+            "LD_LIBRARY_PATH",
+            "PYTHONUNBUFFERED",
+            "NODE_ENV",
+            "SSL_CERT_FILE",
+            "NODE_EXTRA_CA_CERTS",
+            "EVENTCLEAR_MODE",
+            "PROTOTYPE_MAX_MONTHLY_COST_USD",
+        }
+    }
+    gateway_env = {
+        **base_process_env,
+        "STAGING_ACCESS_TOKEN": base["STAGING_ACCESS_TOKEN"],
+        "PORT": base.get("PORT", "10000"),
+    }
     commands = [
         (
             [
@@ -75,7 +96,7 @@ def run():
                 "8001",
                 "--no-access-log",
             ],
-            public_env,
+            base_process_env,
         ),
         (
             [
@@ -94,9 +115,9 @@ def run():
         (["node", "--import", "tsx", "apps/indexer/src/index.ts", "run"], public_env),
         (
             ["node", "node_modules/vinext/dist/cli.js", "start", "--port", "3000"],
-            public_env,
+            base_process_env,
         ),
-        (["node", "scripts/prototype/gateway.mjs"], public_env),
+        (["node", "scripts/prototype/gateway.mjs"], gateway_env),
     ]
     return supervise(commands)
 
@@ -152,9 +173,26 @@ def supervise(commands):
 if __name__ == "__main__":
     try:
         sys.exit(run())
-    except Exception:
+    except Exception as error:
+        message = str(error)
+        allowed = (
+            "PROTOTYPE_",
+            "CONTRACT_MANIFEST_",
+            "STAGING_FIXTURE_",
+            "ONLY_RISK_",
+            "MIGRATION_CHECKSUM_CHANGED",
+            "RPC_CHAIN_",
+            "DEPLOYED_CODE_",
+            "ONCHAIN_SIGNER_",
+        )
+        detail = (
+            message
+            if message.startswith(allowed)
+            and re.fullmatch(r"[A-Z0-9_:,=-]{1,500}", message)
+            else type(error).__name__
+        )
         print(
-            '{"event":"prototype_startup_failed","detail":"CHECK_CONFIGURATION_AND_DEPENDENCIES"}',
+            json.dumps({"event": "prototype_startup_failed", "detail": detail}),
             flush=True,
         )
         sys.exit(1)

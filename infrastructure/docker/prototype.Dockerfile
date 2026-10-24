@@ -19,8 +19,8 @@ RUN --mount=type=secret,id=build_ca \
     if [ -f /run/secrets/build_ca ]; then export PIP_CERT=/run/secrets/build_ca; fi; \
     pip install --no-cache-dir /solver /api
 COPY --from=build --chown=65532:65532 /app /app
-COPY infrastructure/docker/postgres/migrations /app/migrations
-RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/pnpm /usr/local/bin/pnpx
+COPY --chown=65532:65532 infrastructure/docker/postgres/migrations /app/migrations
+RUN chmod -R a+rX /app /usr/local/lib/python3.12/site-packages && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/pnpm /usr/local/bin/pnpx
 USER 65532:65532
 EXPOSE 10000
 CMD ["python", "scripts/prototype/supervise.py"]
