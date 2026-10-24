@@ -1,3 +1,17 @@
+# Zero-cost testnet prototype — current continuation
+
+Canonical state: `BUILD_STATUS.md`. The required next path costs $0 and needs no
+AWS account. Finish validating the combined image and prototype tests, then
+verify genuinely free provider terms and bind owner-controlled accounts/secrets
+using `ZERO_COST_DEPLOYMENT.md`. Deploy the mock suite with faucet gas, run the
+remote lifecycle/UI/restart/catch-up/reconciliation/rollback checks and record
+actual evidence in `TESTNET_PROTOTYPE_EVIDENCE.md`.
+
+Do not claim operational status before external evidence. Preserve the public
+read-only site. No paid plan, mainnet, real funds or public LP access is allowed.
+
+## Historical funded AWS continuation (optional future path)
+
 # External working prototype — current continuation
 
 Canonical state: `BUILD_STATUS.md`. Historical milestones in other documents

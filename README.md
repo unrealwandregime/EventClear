@@ -2,9 +2,23 @@
 
 EventClear is an experimental collateral-compression protocol for formally related Polymarket positions. It escrows exact ERC-1155 outcome-token legs, advances pUSD against a deterministically proven minimum terminal payout, and leaves the user with a transferable residual claim.
 
-> **Experimental unaudited MVP. Do not deposit funds you cannot afford to lose.**
+> **Experimental unaudited prototype. Test assets only. No real funds or public deposits.**
 
 No title similarity, language model, frontend calculation, or unregistered rule can authorize capital. Origination requires a reviewed relationship hash, complete settlement semantics, a reproducible solver proof, a fresh EIP-712 risk quote, and exact onchain token escrow.
+
+## Zero-cost testnet prototype
+
+The canonical executable prototype is `testnet-prototype`: one supervised free
+container, persistent free PostgreSQL and TLS Redis, a dedicated test-only local
+risk signer, PostgreSQL immutable proofs and an approved persistent public
+testnet. Monthly cost ceiling: **$0**. AWS and a paid domain are not required.
+Current external status is **NOT DEPLOYED**; current free-provider terms and
+account eligibility remain to be verified. See [prototype mode](docs/TESTNET_PROTOTYPE.md),
+[deployment and secret setup](docs/ZERO_COST_DEPLOYMENT.md) and
+[actual evidence](docs/TESTNET_PROTOTYPE_EVIDENCE.md).
+
+The existing investor/research site remains `production-readonly`. AWS IaC is
+retained as optional future funded staging; its stricter KMS/S3 gates remain.
 
 ## Architecture
 
@@ -25,7 +39,7 @@ flowchart LR
     Vault --> Indexer
 ```
 
-The same application logic supports `local`, `polygon-fork`, and `polygon-mainnet`. Mainnet mode refuses to start unless every safety gate is explicit and the checked-in contract manifest passes bytecode and interface validation.
+The application separates `local`, `test`, `polygon-fork`, `testnet-prototype`, `staging`, `production-readonly` and `production-controlled` (`polygon-mainnet` is a legacy alias). Mainnet mode refuses to start unless every safety gate is explicit and the checked-in contract manifest passes bytecode and interface validation.
 
 ## Local setup
 
@@ -138,9 +152,9 @@ A bundle below principal becomes `SHORTFALL`; all proceeds go to principal and t
 
 ## Deployment
 
-For the controlled test-asset prototype, use the reproducible
-[CloudFormation staging runbook](infrastructure/aws/README.md) and
-[canonical input checklist](docs/STAGING_CREDENTIAL_CHECKLIST.md).
+For the controlled test-asset prototype, use the
+[zero-cost deployment guide](docs/ZERO_COST_DEPLOYMENT.md). AWS is an
+[optional future funded staging path](infrastructure/aws/README.md).
 Actual remote execution status is recorded in [BUILD_STATUS](docs/BUILD_STATUS.md).
 
 
@@ -151,19 +165,18 @@ lab that enumerates the canonical two-threshold terminal worlds without a
 wallet. The site deliberately keeps wallet authentication and every
 money-moving endpoint disabled.
 
-The selected
-external staging architecture is AWS ECS/Fargate with RDS PostgreSQL,
+The optional future funded
+staging architecture is AWS ECS/Fargate with RDS PostgreSQL,
 ElastiCache Redis, private versioned S3 artifact storage, KMS signing,
 Secrets Manager and CloudWatch. See `docs/AWS_STAGING_SETUP.md`. No AWS staging
 resource is currently provisioned. Use separate secrets and databases for
-`development`, `test`, `staging`, `production-readonly`, and
-`production-mainnet`.
+`local`, `test`, `polygon-fork`, `testnet-prototype`, `staging`,
+`production-readonly`, and `production-controlled`.
 
 Production API processes must set `EVENTCLEAR_STORE=postgres`. Authentication
 nonces and session tokens are stored only as SHA-256 digests, quote nonces are
-allocated atomically, and API read models survive process restarts. Apply
-`infrastructure/docker/postgres/migrations/001_initial.sql` followed by
-`002_operational_state.sql` before starting the API against an existing
+allocated atomically, and API read models survive process restarts. Use the repeatable checksum-ledger migration runner for all migrations in
+`infrastructure/docker/postgres/migrations` before starting the API against an existing
 database. Demo market data is never seeded in `polygon-mainnet` mode.
 
 Production-mainnet requires:
@@ -182,7 +195,7 @@ RISK_SIGNER_BACKEND=kms
 
 Provide multiple `POLYGON_RPC_URLS`, remote signer/KMS configuration, SIWE session secret, admin multisig addresses, database/Redis credentials, Sentry DSN, and deployed EventClear addresses. Never deploy from a browser-controlled flag. Deploy contracts through a hardware-wallet/multisig review workflow and compare bytecode, constructor arguments, and role assignments before verification.
 
-## Mainnet activation checklist
+## Future mainnet activation checklist — not authorized for this sprint
 
 - Independent professional contract and protocol audit completed.
 - Official Polymarket registry re-reviewed; `scripts/verify-manifest.ts` passes against two RPC providers.

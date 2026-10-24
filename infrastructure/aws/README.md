@@ -1,5 +1,10 @@
 # Controlled external staging
 
+**OPTIONAL FUTURE FUNDED STAGING / PRODUCTION-LIKE INFRASTRUCTURE.**
+This is not the canonical prototype path. The owner has authorized no expense.
+For the $0 path use `docs/ZERO_COST_DEPLOYMENT.md` (repository root).
+
+
 This is a test-asset prototype, never a Polygon-mainnet/public-capital release.
 `docs/BUILD_STATUS.md` is the current evidence ledger. The canonical operator
 input inventory is `docs/STAGING_CREDENTIAL_CHECKLIST.md`.

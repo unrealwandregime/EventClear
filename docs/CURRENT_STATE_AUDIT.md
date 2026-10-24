@@ -1,5 +1,14 @@
 # Current audit — 2026-10-23
 
+Current prototype direction: **zero-cost `testnet-prototype`**, separate from
+the public investor read-only site, future funded AWS staging and future
+production. See `docs/TESTNET_PROTOTYPE.md` and `docs/ZERO_COST_DEPLOYMENT.md`.
+Prototype risk signing may use a dedicated isolated local key; funded staging
+and controlled production keep KMS requirements. PostgreSQL proof blobs replace
+S3 only for this explicit prototype mode. No real funds/public LP/mainnet.
+External prototype remains unverified until actual acceptance evidence exists.
+
+
 See `BUILD_STATUS.md` for canonical current acceptance. Baseline matches the requested SHA. No newer default-branch commits were present. External staging evidence remains unexecuted. The deployment workflow assumes existing ECS services/task definitions; no CloudFormation stack exists; migrations currently rerun non-idempotent DDL; API images omit manifests; remote lifecycle and controlled access need implementation.
 
 ## Historical audits

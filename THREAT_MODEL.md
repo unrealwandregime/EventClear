@@ -1,5 +1,14 @@
 # Threat model
 
+Current prototype direction: **zero-cost `testnet-prototype`**, separate from
+the public investor read-only site, future funded AWS staging and future
+production. See `docs/TESTNET_PROTOTYPE.md` and `docs/ZERO_COST_DEPLOYMENT.md`.
+Prototype risk signing may use a dedicated isolated local key; funded staging
+and controlled production keep KMS requirements. PostgreSQL proof blobs replace
+S3 only for this explicit prototype mode. No real funds/public LP/mainnet.
+External prototype remains unverified until actual acceptance evidence exists.
+
+
 | Threat | Primary controls | Residual risk |
 |---|---|---|
 | Shared-vault over-redemption | Exact-leg isolation adapter, token-ID derivation, duplicate-condition rejection, zero post-redemption balances | Unsupported negative-risk markets remain disabled |

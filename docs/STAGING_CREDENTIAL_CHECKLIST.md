@@ -1,5 +1,10 @@
 # Canonical controlled staging input checklist
 
+**OPTIONAL FUTURE FUNDED STAGING / PRODUCTION-LIKE INFRASTRUCTURE.**
+This is not the canonical prototype path. The owner has authorized no expense.
+For the $0 path use `docs/ZERO_COST_DEPLOYMENT.md` (repository root).
+
+
 Never paste secrets into chat, commit them, or put them in frontend build
 variables. Use dedicated staging-only wallets with test assets and faucet gas;
 never use a production wallet. A key's past usage cannot be inferred from its

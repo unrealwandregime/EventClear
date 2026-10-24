@@ -1,9 +1,66 @@
 # EventClear Build Status
 
-## Current working-prototype implementation — 2026-10-24
+## Current zero-cost testnet pivot — 2026-10-24
 
-Canonical current state. Everything under “Historical build record” is historical
-and does not establish present remote acceptance.
+Canonical prototype path: `testnet-prototype`, monthly cost ceiling **$0**.
+AWS is **OPTIONAL FUTURE FUNDED STAGING**, not a required next action. No paid
+service, domain, gas purchase, trial or public capital is authorized.
+
+Implemented: isolated mode safety, dedicated local signer,
+immutable PostgreSQL proof blobs, supervised combined web/API/solver/indexer
+image, provider-neutral lifecycle/UI path, free-plan-verified redeploy adapter,
+optional weekly health checks and current provider setup documentation.
+
+Verified locally: 70 Python tests (two contract cases run separately),
+including 15 prototype safety/storage/supervisor tests with real disposable
+PostgreSQL; 35 Solidity tests; two actual API-to-Anvil integration cases; nine
+indexer tests; 15 JavaScript staging/prototype tests; five rendered-route tests;
+repeatable installation; lint, Ruff, TypeScript and workflow lint. The combined
+Python 3.12/Node 22 non-root image builds without AWS access. The Debian 12 base
+initially had two critical OS findings; switching to matching Debian 13 bases
+produced zero critical findings. Final image refresh and expanded CI remain
+under verification.
+
+The shared backend lifecycle passed on a disposable chain with the prototype
+API mode, random isolated signers, PostgreSQL proofs, TLS RPC/Redis, LP deposit,
+SIWE, independent proof reproduction, recovered quote signer, approvals/open,
+indexing, actual API/indexer restart, settlement, both redemptions and exact
+onchain/indexed pool/claim reconciliation. Isolated Redis-unavailable startup
+was rejected; there is no in-memory downgrade. Final pool assets were
+509045000 atomic units, outstanding advance/quoted fees zero, financing return
+10000000 = LP yield 9045000 + protocol yield fees 955000. This is LOCAL TEST
+EVIDENCE, not persistent public-testnet evidence. Local rollback tests exercise
+the redeploy/restart path; actual provider revision rollback remains unverified.
+
+The stronger check exposed missing pool asset snapshots in the inherited
+indexer. It now adds checkpoint-pinned pool/withdrawal/resolution reads and
+compares event-derived ledger values to onchain totals before committing the
+checkpoint. RPC health diagnostics retain 24 hours to bound free-database use.
+
+Slither rescan: 32 findings, zero high/critical. Five medium findings and all
+lower findings have explicit internal dispositions in SLITHER_FINDING_REVIEW;
+this is not an independent audit. Minor initialization, shadowing and beneficiary
+checks were fixed without detector suppression.
+
+Local Playwright cannot download Chromium: the CDN returns HTTP 403 Domain
+forbidden. The GitHub API also returns Forbidden, so final CI and PR-description
+updates cannot currently be verified here. Branch pushes work. Public-site
+remote revalidation is blocked by DNS/network access; local read-only regression
+checks pass. Prior green CI at
+497a2e2 applies to the prior AWS-oriented implementation, not this pivot.
+
+External status: **NOT DEPLOYED / NO REMOTE LIFECYCLE EVIDENCE**. Provider account
+bindings and dedicated keys/faucet gas are unavailable. Current provider pricing
+and official chain pages must be verified before deployment; provider pricing
+pages return HTTP 403 here. No hostname, address, transaction, restart, rollback
+or accounting success is fabricated. See `ZERO_COST_DEPLOYMENT.md` and
+`TESTNET_PROTOTYPE_EVIDENCE.md` for the current path. Independent audit/legal
+approval remain incomplete. Mainnet is untouched; public capital is disabled.
+
+## Historical funded-staging implementation — 2026-10-24
+
+This section records the prior funded-staging implementation. It is historical
+and does not establish present remote acceptance or the canonical $0 path.
 
 Baseline: `2b1bf147d348df62954f6f3ff229179ff0e28960` (fresh default branch,
 no intervening commits). Implementation branch: `codex/final-working-prototype`.

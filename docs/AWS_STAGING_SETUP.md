@@ -1,5 +1,10 @@
 # Reproducible AWS staging setup
 
+**OPTIONAL FUTURE FUNDED STAGING / PRODUCTION-LIKE INFRASTRUCTURE.**
+This is not the canonical prototype path. The owner has authorized no expense.
+For the $0 path use `docs/ZERO_COST_DEPLOYMENT.md` (repository root).
+
+
 The CloudFormation implementation supersedes the historical manual CLI-only
 setup. Use [the operator runbook](../infrastructure/aws/README.md) and
 [the canonical input inventory](STAGING_CREDENTIAL_CHECKLIST.md).
