@@ -145,7 +145,7 @@ jobs:
           for service in web api solver indexer migration; do
             image="$prefix-$service:$sha"
             if aws ecr describe-images --repository-name "$STAGING_STACK_NAME-$service" --image-ids "imageTag=$sha" >/dev/null 2>&1; then continue; fi
-            docker build -f "infrastructure/docker/$service.Dockerfile" -t "$image" .
+            docker build --build-arg DATABASE_CA_URL=https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem -f "infrastructure/docker/$service.Dockerfile" -t "$image" .
             docker push "$image"
           done
       - name: Execute protected AWS operation

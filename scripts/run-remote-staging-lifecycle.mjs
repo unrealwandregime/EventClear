@@ -16,17 +16,21 @@ import { validateChain } from "./aws/validate-chain.mjs";
 import { derive } from "./aws/derive-kms-ethereum-address.mjs";
 import { operate } from "./aws/operate.mjs";
 import { probeRedisFailure } from "./aws/redis-failure-probe.mjs";
+const prototype = process.env.EVENTCLEAR_MODE === "testnet-prototype";
 const load = (p) => JSON.parse(readFileSync(p, "utf8"));
-const manifest = load("config/contracts/staging.json"),
+const prototypeEnv = prototype ? await import("./prototype/environment.mjs") : null;
+const actors = prototype ? prototypeEnv.stagingCompatibility() : deriveActors();
+const manifest = load(prototype ? "config/contracts/testnet-prototype.json" : "config/contracts/staging.json"),
   fixture = load("config/staging/deployed.json");
 const chainId = assertStaging(),
-  o = readOutputs(),
-  actors = deriveActors();
-process.env.RISK_SIGNER_ADDRESS = await derive(o.RiskKeyArn);
-await validateChain(
-  process.env,
-  Object.values(manifest.contracts).map((c) => c.address),
-);
+  o = prototype ? {ApiUrl:process.env.PROTOTYPE_URL,WebUrl:process.env.PROTOTYPE_URL} : readOutputs();
+if (prototype) {
+  prototypeEnv.manifest();
+  if (!o.ApiUrl?.startsWith("https://")) throw Error("PROTOTYPE_HTTPS_URL_REQUIRED");
+} else process.env.RISK_SIGNER_ADDRESS = await derive(o.RiskKeyArn);
+const checkChain = prototype ? (await import("./prototype/validate-chain.mjs")).validateChain : validateChain;
+await checkChain(process.env,Object.values(manifest.contracts).map(c=>c.address));
+process.env.STAGING_RELATIONSHIP_HASH = fixture.relationship.canonicalDefinitionHash;
 await verifyDeployment(manifest);
 const chain = {
   id: chainId,
@@ -48,7 +52,7 @@ const wallets = Object.fromEntries(
     }),
   ]),
 );
-const runtime = JSON.parse(
+const runtime = prototype ? {accessToken:process.env.STAGING_ACCESS_TOKEN} : JSON.parse(
   aws(["secretsmanager", "get-secret-value", "--secret-id", o.RuntimeSecretArn])
     .SecretString,
 );
@@ -92,10 +96,11 @@ const evidence = {
     encoding: "utf8",
   }).trim(),
   startedAt: new Date().toISOString(),
-  region: process.env.AWS_REGION,
+  environment: prototype ? "testnet-prototype" : "staging",
+  region: prototype ? undefined : process.env.AWS_REGION,
   chainId,
   manifestHash: manifest.manifestHash,
-  kmsSigner: process.env.RISK_SIGNER_ADDRESS,
+  riskSigner: process.env.RISK_SIGNER_ADDRESS,
   transactions: {},
 };
 async function send(actor, key, fn, args, label) {
@@ -253,6 +258,11 @@ assert.equal((await api(`/analysis/${analysis.id}/verify`, {})).valid, true);
 const canonicalDigest =
   "0x" + createHash("sha256").update(canonical(artifact)).digest("hex");
 assert.equal(canonicalDigest, analysis.artifactStorageHash);
+if (prototype) {
+  // The API reads back immutable PostgreSQL bytes and checks the content hash.
+  assert.equal(analysis.artifactObjectKey,canonicalDigest.slice(2));
+  assert.deepEqual(await api(`/analysis/${analysis.id}/artifact`),artifact);
+} else {
 // Verify real bucket controls, versioning and conditional overwrite protection.
 assert.equal(
   aws(["s3api", "get-bucket-versioning", "--bucket", o.ArtifactBucket]).Status,
@@ -273,6 +283,7 @@ execFileSync("python", ["scripts/aws/verify-artifact.py"], {
   }),
   stdio: ["pipe", "inherit", "pipe"],
 });
+}
 const quote = await api("/quotes", payload);
 evidence.quoteId = quote.id;
 assert.equal(
@@ -340,6 +351,11 @@ const indexed = await waitFor(async () => {
 const indexedId = indexed.id;
 // Restart API/indexer before settlement to verify persistent analysis, quote and checkpoint.
 const checkpointBefore = await api("/staging/operations");
+if (prototype) {
+  const {redeploy}=await import("./prototype/host.mjs");
+  evidence.restartDeployment=await redeploy(evidence.gitSha);
+  await waitFor(async()=>{try{return (await api("/readiness")).status==="ready"}catch{return false}},"cold start");
+} else {
 for (const svc of ["api", "indexer"])
   aws([
     "ecs",
@@ -360,6 +376,7 @@ aws([
   `${process.env.STAGING_STACK_NAME}-api`,
   `${process.env.STAGING_STACK_NAME}-indexer`,
 ]);
+}
 assert.equal((await api(`/analysis/${analysis.id}`)).id, analysis.id);
 assert.equal((await api(`/quotes/${quote.id}`)).id, quote.id);
 assert.equal(
@@ -371,6 +388,7 @@ assert.ok(
   BigInt(checkpointAfter.checkpoint) >= BigInt(checkpointBefore.checkpoint),
 );
 assert.equal(checkpointAfter.duplicateEvents, 0);
+if(prototype) assert.notEqual(checkpointAfter.bootId,checkpointBefore.bootId);
 assert.ok(
   checkpointAfter.redisRestartProbe > checkpointBefore.redisRestartProbe,
 );
@@ -380,7 +398,7 @@ evidence.restart = {
   before: checkpointBefore,
   after: checkpointAfter,
 };
-evidence.redisUnavailable = await probeRedisFailure(o);
+evidence.redisUnavailable = prototype ? "REMOTE REDIS FAILURE DRILL NOT AVAILABLE; verify isolated CI failure path" : await probeRedisFailure(o);
 // Resolve into the middle region: both escrowed legs pay one test pUSD/share.
 for (const [i, leg] of fixture.solverRequest.legs.entries())
   await send(
@@ -461,6 +479,18 @@ assert.equal(
   finalBorrower - beforeBorrower,
   BigInt(quote.quote.netAdvance) + principal + ledger.refundedQuotedFees,
 );
+if (prototype) {
+  if (!process.env.PROTOTYPE_PREVIOUS_SHA) throw Error("PREVIOUS_IMMUTABLE_SHA_REQUIRED_FOR_ROLLBACK");
+  const {redeploy}=await import("./prototype/host.mjs");
+  const previous=await redeploy(process.env.PROTOTYPE_PREVIOUS_SHA);
+  await waitFor(async()=>{try{return (await api("/readiness")).status==="ready"}catch{return false}},"rollback health");
+  assert.equal((await api(`/analysis/${analysis.id}`)).id,analysis.id);
+  const checkpoint=await api("/staging/operations");
+  assert.equal(checkpoint.duplicateEvents,0);
+  for(const [field,value] of Object.entries(ledger)) assert.equal(await read("fundingPool",field),value);
+  evidence.rollback={status:"passed",previous,checkpoint};
+  await redeploy(evidence.gitSha);
+} else {
 await operate("deploy-services");
 await operate("rollback-services");
 assert.equal((await api(`/analysis/${analysis.id}`)).id, analysis.id);
@@ -469,19 +499,21 @@ for (const [field, value] of Object.entries(ledger))
 const rollbackCheckpoint = await api("/staging/operations");
 assert.equal(rollbackCheckpoint.duplicateEvents, 0);
 evidence.rollback = { status: "passed", checkpoint: rollbackCheckpoint };
+}
 evidence.accounting = Object.fromEntries(
   Object.entries(ledger).map(([k, v]) => [k, String(v)]),
 );
 evidence.borrowerBalanceDelta = String(finalBorrower - beforeBorrower);
 evidence.finishedAt = new Date().toISOString();
 evidence.status = "REMOTE_LIFECYCLE_PASSED";
-mkdirSync("outputs/staging", { recursive: true });
+mkdirSync(prototype ? "outputs/prototype" : "outputs/staging", { recursive: true });
 writeFileSync(
-  "outputs/staging/lifecycle.json",
+  prototype ? "outputs/prototype/lifecycle.json" : "outputs/staging/lifecycle.json",
   JSON.stringify(evidence, null, 2) + "\n",
 );
 writeFileSync(
-  "docs/STAGING_LIFECYCLE_EVIDENCE.md",
+  prototype ? "docs/TESTNET_PROTOTYPE_EVIDENCE.md" : "docs/STAGING_LIFECYCLE_EVIDENCE.md",
   `# Staging lifecycle evidence\n\nStatus: REMOTE LIFECYCLE PASSED\n\n\`\`\`json\n${JSON.stringify(evidence, null, 2)}\n\`\`\`\n`,
 );
+if(prototype) execFileSync("pnpm",["exec","playwright","test","--config","playwright.staging.config.ts","--grep","remote final-state"],{stdio:"inherit"});
 console.log("Remote staging lifecycle passed; sanitized evidence written.");

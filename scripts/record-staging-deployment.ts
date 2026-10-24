@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createPublicClient, getAddress, http, keccak256 } from "viem";
 
+const prototype = process.env.EVENTCLEAR_MODE === "testnet-prototype";
 const rpcUrl = process.env.STAGING_RPC_URL;
 if (!rpcUrl) throw new Error("STAGING_RPC_URL_REQUIRED");
 const chainId = Number(process.env.STAGING_CHAIN_ID ?? process.env.CHAIN_ID ?? "31337");
@@ -83,7 +84,7 @@ const canonical = (value: unknown): string => {
   return JSON.stringify(value);
 };
 const manifestBase = {
-  environment: "staging",
+  environment: prototype ? "testnet-prototype" : "staging",
   chainId,
   reviewedAt: new Date().toISOString(),
   registrySource: "https://github.com/unrealwandregime/EventClear",
@@ -91,7 +92,7 @@ const manifestBase = {
 };
 const manifestHash = `0x${createHash("sha256").update(canonical(manifestBase)).digest("hex")}`;
 await writeFile(
-  resolve(root, "config/contracts/staging.json"),
+  resolve(root, prototype ? "config/contracts/testnet-prototype.json" : "config/contracts/staging.json"),
   `${JSON.stringify({ ...manifestBase, manifestHash }, null, 2)}\n`,
 );
 
@@ -189,5 +190,5 @@ const lines = [
   "",
 ];
 await mkdir(resolve(root, "docs"), { recursive: true });
-await writeFile(resolve(root, "docs/STAGING_DEPLOYMENT_RECORD.md"), lines.join("\n"));
+await writeFile(resolve(root, prototype ? "docs/TESTNET_PROTOTYPE_DEPLOYMENT.md" : "docs/STAGING_DEPLOYMENT_RECORD.md"), lines.join("\n"));
 console.log(`Recorded ${deployments.length} staging contracts; manifest ${manifestHash}.`);

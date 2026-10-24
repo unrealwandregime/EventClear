@@ -20,7 +20,7 @@ def clean(value):
 def summarize(directory):
     findings = []
     statuses = json.loads((directory / "scan-exit-status.json").read_text())
-    for service in ["web", "api", "solver", "indexer", "migration"]:
+    for service in ["web", "api", "solver", "indexer", "migration", "prototype"]:
         path = directory / f"{service}.json"
         vulnerabilities = []
         if path.exists():
@@ -54,7 +54,7 @@ def summarize(directory):
             findings.append(detail)
             print(f"::error title=Runtime scanner failure::{detail}")
     summary = (
-        "; ".join(findings) if findings else "all five images: zero critical findings"
+        "; ".join(findings) if findings else "all six images: zero critical findings"
     )
     if os.getenv("GITHUB_OUTPUT"):
         with open(os.environ["GITHUB_OUTPUT"], "a") as output:

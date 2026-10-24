@@ -83,15 +83,23 @@ jobs:
       - run: docker compose -p eventclear build
       - name: Build the standalone staging migration image
         run: docker build -f infrastructure/docker/migration.Dockerfile -t "eventclear-ci-migration:$GITHUB_SHA" .
+      - name: Build zero-cost combined prototype image
+        run: docker build -f infrastructure/docker/prototype.Dockerfile -t "eventclear-ci-prototype:$GITHUB_SHA" .
+      - name: Verify prototype image rejects unconfigured startup
+        run: |
+          if docker run --rm "eventclear-ci-prototype:$GITHUB_SHA"; then
+            echo 'Unconfigured external prototype unexpectedly started'
+            exit 1
+          fi
       - name: Scan every runtime image for critical vulnerabilities
         id: scan
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/trivy-cache" "$RUNNER_TEMP/trivy-reports"
           printf '{}\n' > "$RUNNER_TEMP/trivy-reports/scan-exit-status.json"
-          for service in web api solver indexer migration; do
+          for service in web api solver indexer migration prototype; do
             image="eventclear-ci-$service:$GITHUB_SHA"
-            if [ "$service" != migration ]; then docker tag "eventclear-$service:latest" "$image"; fi
+            if [ "$service" != migration ] && [ "$service" != prototype ]; then docker tag "eventclear-$service:latest" "$image"; fi
             status=0
             docker run --rm \
               -v /var/run/docker.sock:/var/run/docker.sock \
@@ -168,7 +176,7 @@ jobs:
       - run: pip install -e apps/solver -e apps/api pytest cfn-lint
       - run: cfn-lint infrastructure/aws/bootstrap/template.json infrastructure/aws/staging/template.json
       - run: node --test tests/staging/*.test.mjs
-      - run: python -m pytest tests/staging/test_staging.py -q
+      - run: python -m pytest tests/staging/test_staging.py tests/staging/test_prototype.py -q
       - uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1
         with: { version: v1.5.1 }
       - working-directory: packages/contracts
@@ -188,6 +196,7 @@ jobs:
           test "$ready" = true
           python scripts/aws/migrate.py
           python scripts/aws/migrate.py
+          PROTOTYPE_TEST_DATABASE_URL="$DATABASE_URL" python -m pytest tests/staging/test_prototype.py -q
       - if: always()
         run: docker rm -f migration-test || true
   container-scan-summary:

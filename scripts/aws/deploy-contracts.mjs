@@ -63,7 +63,7 @@ export async function verifyDeployment(manifest, env = process.env) {
     client = createPublicClient({ transport: http(env.STAGING_RPC_PRIMARY) });
   if (
     manifest.chainId !== chainId ||
-    manifest.environment !== "staging" ||
+    manifest.environment !== (env.EVENTCLEAR_MODE === "testnet-prototype" ? "testnet-prototype" : "staging") ||
     (await client.getChainId()) !== chainId
   )
     throw Error("DEPLOYMENT_CHAIN_MISMATCH");
@@ -220,10 +220,11 @@ export async function verifyDeployment(manifest, env = process.env) {
 }
 export async function deploy() {
   assertStaging();
-  const o = readOutputs(),
-    actors = deriveActors();
-  await validateChain();
-  process.env.RISK_SIGNER_ADDRESS = await derive(o.RiskKeyArn);
+  const prototype = process.env.EVENTCLEAR_MODE === "testnet-prototype";
+  const actors = prototype ? (await import("../prototype/environment.mjs")).stagingCompatibility() : deriveActors();
+  const checkChain = prototype ? (await import("../prototype/validate-chain.mjs")).validateChain : validateChain;
+  await checkChain();
+  if (!prototype) process.env.RISK_SIGNER_ADDRESS = await derive(readOutputs().RiskKeyArn);
   process.env.STAGING_RPC_URL = process.env.STAGING_RPC_PRIMARY;
   const client = createPublicClient({
     transport: http(process.env.STAGING_RPC_PRIMARY),
@@ -266,14 +267,14 @@ export async function deploy() {
   }
   execFileSync("pnpm", ["deployment:record-staging"], { stdio: "inherit" });
   const manifest = JSON.parse(
-    readFileSync("config/contracts/staging.json", "utf8"),
+    readFileSync(prototype ? "config/contracts/testnet-prototype.json" : "config/contracts/staging.json", "utf8"),
   );
   const verification = await verifyDeployment(manifest);
-  await validateChain(
+  await checkChain(
     process.env,
     Object.values(manifest.contracts).map((c) => c.address),
   );
-  mkdirSync("outputs/staging", { recursive: true });
+  mkdirSync(prototype ? "outputs/prototype" : "outputs/staging", { recursive: true });
   const broadcast = JSON.parse(
     readFileSync(
       `packages/contracts/broadcast/DeployStaging.s.sol/${manifest.chainId}/run-latest.json`,
@@ -281,7 +282,7 @@ export async function deploy() {
   );
   // Never upload raw Foundry cache/broadcast files: they may include sensitive metadata.
   writeFileSync(
-    "outputs/staging/contracts.json",
+    prototype ? "outputs/prototype/contracts.json" : "outputs/staging/contracts.json",
     JSON.stringify(
       {
         gitSha: execFileSync("git", ["rev-parse", "HEAD"], {
@@ -295,7 +296,7 @@ export async function deploy() {
           Object.entries(actors).map(([k, a]) => [k, a.address]),
         ),
         administrator: process.env.STAGING_ADMIN_ADDRESS,
-        kmsSigner: process.env.RISK_SIGNER_ADDRESS,
+        riskSigner: process.env.RISK_SIGNER_ADDRESS,
         transactions: broadcast.transactions.map((t) => ({
           hash: t.hash,
           contractName: t.contractName,

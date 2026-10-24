@@ -4,20 +4,11 @@ import { createPublicClient, http } from "viem";
 import { assertStaging, aws } from "../../scripts/aws/common.mjs";
 import { readOutputs } from "../../scripts/aws/read-staging-outputs.mjs";
 import { deriveActors } from "../../scripts/aws/deploy-contracts.mjs";
-const chainId = assertStaging(),
-  outputs = readOutputs(),
-  actors = deriveActors();
-const manifest = JSON.parse(
-  readFileSync("config/contracts/staging.json", "utf8"),
-);
-const runtime = JSON.parse(
-  aws([
-    "secretsmanager",
-    "get-secret-value",
-    "--secret-id",
-    outputs.RuntimeSecretArn,
-  ]).SecretString,
-);
+const prototype=process.env.EVENTCLEAR_MODE === "testnet-prototype";
+const actors=prototype ? (await import("../../scripts/prototype/environment.mjs")).stagingCompatibility() : deriveActors();
+const chainId=assertStaging(), outputs=prototype ? {WebUrl:process.env.PROTOTYPE_URL,ApiUrl:process.env.PROTOTYPE_URL} : readOutputs();
+const manifest=JSON.parse(readFileSync(prototype ? "config/contracts/testnet-prototype.json" : "config/contracts/staging.json","utf8"));
+const runtime=prototype ? {accessToken:process.env.STAGING_ACCESS_TOKEN} : JSON.parse(aws(["secretsmanager","get-secret-value","--secret-id",outputs.RuntimeSecretArn]).SecretString);
 const client = createPublicClient({
   transport: http(process.env.STAGING_RPC_PRIMARY),
 });
@@ -31,7 +22,8 @@ async function setup(page, context) {
     outputs.WebUrl + "/api/v1/config/public",
   );
   const value = await config.json();
-  expect(value.mode).toBe("staging");
+  expect(value.mode).toBe(prototype ? "testnet-prototype" : "staging");
+
   expect(value.chainId).toBe(chainId);
   expect(value.mainnetExecution).toBe(false);
   // The signing key stays in the Node process. This test-only EIP-1193 bridge
@@ -80,6 +72,7 @@ async function setup(page, context) {
     }),
   );
   await page.goto(outputs.WebUrl + "/app");
+  if (prototype) await expect(page.getByRole("alert")).toContainText("TESTNET PROTOTYPE");
   await page.waitForFunction(
     () => document.documentElement.dataset.eventclearHydrated === "true",
   );
@@ -138,7 +131,7 @@ test("remote analysis proof and quote UI", async ({
 test("remote final-state UI", async ({ page, context }) => {
   await setup(page, context);
   const lifecycle = JSON.parse(
-    readFileSync("outputs/staging/lifecycle.json", "utf8"),
+    readFileSync(prototype ? "outputs/prototype/lifecycle.json" : "outputs/staging/lifecycle.json", "utf8"),
   );
   await page.getByRole("button", { name: "Bundles" }).click();
   await expect(

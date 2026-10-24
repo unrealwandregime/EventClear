@@ -1,0 +1,65 @@
+# Optional free-host blueprint. Review the provider's current $0 terms first.
+# Never enable paid build pipelines, preview environments, scaling or paid plans.
+services:
+  - type: web
+    name: eventclear-testnet
+    runtime: docker
+    plan: free
+    dockerfilePath: ./infrastructure/docker/prototype.Dockerfile
+    healthCheckPath: /api/v1/readiness
+    autoDeployTrigger: off
+    envVars:
+      - key: EVENTCLEAR_MODE
+        value: testnet-prototype
+      - key: PROTOTYPE_MAX_MONTHLY_COST_USD
+        value: '0'
+      - key: TESTNET_ASSETS_ONLY
+        value: 'true'
+      - key: ENABLE_MAINNET_EXECUTION
+        value: 'false'
+      - key: PUBLIC_CAPITAL_ACTIVATED
+        value: 'false'
+      - key: EVENTCLEAR_STORE
+        value: postgres
+      - key: RISK_SIGNER_BACKEND
+        value: local
+      - key: SOLVER_URL
+        value: http://127.0.0.1:8001
+      - key: CHAIN_ID
+        value: '80002'
+      - key: INDEXER_CONFIRMATIONS
+        value: '2'
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: RISK_SIGNER_PRIVATE_KEY
+        sync: false
+      - key: RISK_SIGNER_ADDRESS
+        sync: false
+      - key: SIWE_SESSION_SECRET
+        generateValue: true
+      - key: ADMIN_API_TOKEN
+        generateValue: true
+      - key: STAGING_ACCESS_TOKEN
+        generateValue: true
+      - key: PROTOTYPE_MANIFEST_JSON
+        sync: false
+      - key: PROTOTYPE_FIXTURE_JSON
+        sync: false
+      - key: SIWE_DOMAIN
+        sync: false
+      - key: SIWE_URI
+        sync: false
+      - key: POLYGON_RPC_URLS
+        sync: false
+      - key: PROTOTYPE_DEPLOYER_ADDRESS
+        sync: false
+      - key: PROTOTYPE_LP_ADDRESS
+        sync: false
+      - key: PROTOTYPE_TESTER_ADDRESS
+        sync: false
+      - key: PROTOTYPE_ADMIN_ADDRESS
+        sync: false
+      - key: INDEXER_START_BLOCK
+        sync: false
