@@ -218,3 +218,35 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - run: echo 'Review the Docker check annotations and runtime-container-scans artifact for complete results.'
+  update-prototype-pr:
+    name: Update zero-cost prototype review handoff
+    needs: [web, python, contracts, polygon-fork, docker, supply-chain, linux-reproducibility, staging-automation, container-scan-summary]
+    if: github.event_name == 'pull_request' && github.event.pull_request.number == 10 && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/final-working-prototype'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {ref: '${{ github.event.pull_request.head.sha }}'}
+      - name: Update existing PR only after all validation succeeds
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+          CI_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          gh api repos/unrealwandregime/EventClear/pulls/10 > "$RUNNER_TEMP/prototype-pr.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          pr = json.loads((Path(os.environ['RUNNER_TEMP']) / 'prototype-pr.json').read_text())
+          assert pr['state'] == 'open'
+          assert pr['head']['sha'] == os.environ['EXPECTED_SHA']
+          assert pr['head']['ref'] == 'codex/final-working-prototype'
+          assert pr['head']['repo']['full_name'] == 'unrealwandregime/EventClear'
+          body = Path('docs/PR_10_ZERO_COST_REVIEW.md').read_text()
+          body += '\nValidated release: `' + os.environ['EXPECTED_SHA'] + '`\n\nCI: ' + os.environ['CI_RUN_URL'] + '\n'
+          (Path(os.environ['RUNNER_TEMP']) / 'prototype-pr-update.json').write_text(json.dumps({'title':'Implement zero-cost controlled testnet prototype; retain optional AWS staging','body':body}))
+          PY
+          gh api --method PATCH repos/unrealwandregime/EventClear/pulls/10 --input "$RUNNER_TEMP/prototype-pr-update.json" --jq .html_url
